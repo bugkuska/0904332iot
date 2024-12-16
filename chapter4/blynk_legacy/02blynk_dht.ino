@@ -1,9 +1,3 @@
-/*
-Libraries
-1. Blynk : https://downloads.arduino.cc/libraries/github.com/blynkkk/Blynk-1.0.1.zip
-2. DHT : Install from Arduino Library Manager
-*/
-
 #define BLYNK_PRINT Serial
 #include <WiFi.h>
 #include <WiFiClient.h>
@@ -11,14 +5,14 @@ Libraries
 #include <DHT.h>
 
 // Wi-Fi and Blynk credentials
-const char ssid[] = "Your_SSID";        // Your Wi-Fi SSID
-const char pass[] = "Your_PASSWORD";   // Your Wi-Fi password
-const char auth[] = "Your_AUTH_TOKEN"; // Auth token from Blynk app
+const char ssid[] = "Sirindhorn_Floor_2-4";        // Your Wi-Fi SSID
+const char pass[] = "";   // Your Wi-Fi password
+const char auth[] = "OUVoNemiCMONaENUF4Ze-oF55sBH2YHy"; // Auth token from Blynk app
 
 // GPIO configuration
 #define LED_PIN 2
 #define DHTPIN 15          // GPIO15 connected to DHT sensor
-#define DHTTYPE DHT22      // DHT type: DHT11 or DHT22
+#define DHTTYPE DHT11      // DHT type: DHT11 or DHT22
 
 // Create DHT instance
 DHT dht(DHTPIN, DHTTYPE);
@@ -61,7 +55,7 @@ void setup() {
 
   // Connect to Blynk server
   Serial.println("Connecting to Blynk server...");
-  Blynk.begin(auth, ssid, pass, "ip-address-blynk-localserver", 8080);
+  Blynk.begin(auth, ssid, pass, "10.119.0.48", 8080);
 
   // Set up periodic tasks
   timer.setInterval(2000L, readDHTSensor);   // Read DHT every 2 seconds
@@ -72,7 +66,12 @@ void setup() {
 BLYNK_CONNECTED() {
   Serial.println("Blynk connected!");
   Blynk.syncAll(); // Synchronize all Blynk states
+  
+  // บังคับเปิด LED หลังจาก sync
+  digitalWrite(LED_PIN, HIGH);
+  Serial.println("LED state set to: ON (forced ON after connection)");
 }
+
 
 // Callback to control LED from Blynk app
 BLYNK_WRITE(V0) {
