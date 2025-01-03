@@ -23,11 +23,11 @@ Point sensor("environment");
 // GPIO Configuration
 #define LED_PIN 2
 #define DHTPIN 15
-#define DHTTYPE DHT11  //ตัวสีฟ้า DHT11, ตัวสีขาว DHT22
-#define RELAY1_PIN 26  //Relay ช่องที่ 1
-#define RELAY2_PIN 25  //Relay ช่องที่ 2
-#define RELAY3_PIN 33  //Relay ช่องที่ 3
-#define RELAY4_PIN 32  //Relay ช่องที่ 4
+#define DHTTYPE DHT11
+#define RELAY1_PIN 26
+#define RELAY2_PIN 25
+#define RELAY3_PIN 33
+#define RELAY4_PIN 32
 
 // DHT and LCD Initialization
 DHT dht(DHTPIN, DHTTYPE);
@@ -74,21 +74,28 @@ void setup() {
     Serial.println("InfluxDB connection failed!");
   }
 
-  timer.setInterval(10000L, readDHTSensor);  // Read DHT every 10 seconds
-  timer.setInterval(5000L, reconnectWiFi);   // Check Wi-Fi every 5 seconds
-  timer.setInterval(10000L, reconnectBlynk); // Attempt to reconnect Blynk every 10 seconds
+  timer.setInterval(10000L, readDHTSensor);   // Read DHT every 10 seconds
+  timer.setInterval(5000L, reconnectWiFi);    // Check Wi-Fi every 5 seconds
+  timer.setInterval(10000L, reconnectBlynk);  // Attempt to reconnect Blynk every 10 seconds
 }
 
 // Sync all buttons when Blynk is connected
 BLYNK_CONNECTED() {
   Serial.println("Blynk connected!");
-  Blynk.syncAll(); // Sync all Virtual Pins
+  Blynk.syncAll();  // Sync all Virtual Pins
 
   // Sync relay states (optional for better clarity)
   Blynk.syncVirtual(V10);
   Blynk.syncVirtual(V11);
   Blynk.syncVirtual(V12);
   Blynk.syncVirtual(V13);
+  // เปิด LED เพื่อแสดงสถานะการเชื่อมต่อ
+  digitalWrite(LED_PIN, HIGH);
+}
+
+BLYNK_DISCONNECTED() {
+  // ปิด LED เมื่อการเชื่อมต่อ Blynk หลุด
+  digitalWrite(LED_PIN, LOW);
 }
 
 // Callback to control Relay 1
@@ -124,6 +131,9 @@ BLYNK_WRITE(V13) {
 }
 
 void readDHTSensor() {
+  static float lastTemperature = 0.0;
+  static float lastHumidity = 0.0;
+
   float temperature = dht.readTemperature();
   float humidity = dht.readHumidity();
 
@@ -133,28 +143,37 @@ void readDHTSensor() {
     Serial.print("C, Humidity: ");
     Serial.println(humidity);
 
-    // Send to Blynk if connected
+    // ส่งข้อมูลไปยัง Blynk ถ้าเชื่อมต่อ
     if (Blynk.connected()) {
       Blynk.virtualWrite(V1, temperature);
       Blynk.virtualWrite(V2, humidity);
     }
 
-    // Display on LCD
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Temp: " + String(temperature) + "C");
-    lcd.setCursor(0, 1);
-    lcd.print("Humidity: " + String(humidity) + "%");
+    // อัปเดตจอ LCD เฉพาะเมื่อค่ามีการเปลี่ยนแปลง
+    if (temperature != lastTemperature || humidity != lastHumidity) {
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Temp: " + String(temperature) + "C");
+      lcd.setCursor(0, 1);
+      lcd.print("Humidity: " + String(humidity) + "%");
 
-    // Write to InfluxDB
+      // บันทึกค่าล่าสุด
+      lastTemperature = temperature;
+      lastHumidity = humidity;
+    }
+
+    // เขียนข้อมูลไปยัง InfluxDB
     sensor.clearFields();
     sensor.addField("temperature", temperature);
     sensor.addField("humidity", humidity);
     if (!client.writePoint(sensor)) {
       Serial.println("Failed to write to InfluxDB");
     }
+  } else {
+    Serial.println("Failed to read from DHT sensor!");
   }
 }
+
 
 void reconnectWiFi() {
   if (WiFi.status() != WL_CONNECTED) {
@@ -165,7 +184,7 @@ void reconnectWiFi() {
 
 void reconnectBlynk() {
   unsigned long now = millis();
-  if (!Blynk.connected() && (now - lastReconnectAttempt > 10000)) { // Attempt reconnect every 10 seconds
+  if (!Blynk.connected() && (now - lastReconnectAttempt > 10000)) {  // Attempt reconnect every 10 seconds
     Serial.println("Blynk disconnected! Attempting to reconnect...");
     if (Blynk.connect()) {
       Serial.println("Blynk reconnected!");
