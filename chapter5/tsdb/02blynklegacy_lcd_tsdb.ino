@@ -8,26 +8,26 @@
 #include <DHT.h>
 
 // Wi-Fi and Blynk credentials
-const char ssid[] = "smf001";
-const char pass[] = "0814111142";
-const char auth[] = "OUVoNemiCMONaENUF4Ze-oF55sBH2YHy";
+const char ssid[] = "แก้ชื่อ Wi-Fi";
+const char pass[] = "แก้รหัสผ่าน Wi-Fi";
+const char auth[] = "แก้ Auth Token";
 
 // InfluxDB Configuration
-#define INFLUXDB_URL "http://192.168.1.168:8086"
-#define INFLUXDB_TOKEN "B51vRj_PQ5fYFcRL7NhTXzPySM5vQW82cLerov1i8aZN9XkZqpeRSDwsTNna6teHlBvr4mLpNX0NKqYa_iGUMw=="
-#define INFLUXDB_ORG "bb1cc76268fd69ea"
-#define INFLUXDB_BUCKET "smart01"
+#define INFLUXDB_URL "http://ip-address-influxdb:8086"
+#define INFLUXDB_TOKEN "InfluxDB API Token"
+#define INFLUXDB_ORG "InfluxDB Organization ID"
+#define INFLUXDB_BUCKET "ชื่อฐานข้อมูล"
 InfluxDBClient client(INFLUXDB_URL, INFLUXDB_ORG, INFLUXDB_BUCKET, INFLUXDB_TOKEN, InfluxDbCloud2CACert);
 Point sensor("environment");
 
 // GPIO Configuration
 #define LED_PIN 2
 #define DHTPIN 15
-#define DHTTYPE DHT11
-#define RELAY1_PIN 26
-#define RELAY2_PIN 25
-#define RELAY3_PIN 33
-#define RELAY4_PIN 32
+#define DHTTYPE DHT11  //ตัวสีฟ้า DHT11, ตัวสีขาว DHT22
+#define RELAY1_PIN 26  //Relay ช่องที่ 1
+#define RELAY2_PIN 25  //Relay ช่องที่ 2
+#define RELAY3_PIN 33  //Relay ช่องที่ 3
+#define RELAY4_PIN 32  //Relay ช่องที่ 4
 
 // DHT and LCD Initialization
 DHT dht(DHTPIN, DHTTYPE);
@@ -67,7 +67,7 @@ void setup() {
   reconnectWiFi();
 
   // Configure Blynk (non-blocking)
-  Blynk.config(auth, "192.168.1.168", 8080);
+  Blynk.config(auth, "ip-address-blynk-local-server", 8080);
 
   // Check InfluxDB connection
   if (!client.validateConnection()) {
