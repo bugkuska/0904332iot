@@ -15,10 +15,10 @@ const char auth[] = "OUVoNemiCMONaENUF4Ze-oF55sBH2YHy"; // Auth token from Blynk
 #define DHTTYPE DHT11      // DHT type: DHT11 or DHT22
 
 // Relay pin definitions
-#define RELAY1_PIN 4
-#define RELAY2_PIN 5
-#define RELAY3_PIN 18
-#define RELAY4_PIN 19
+#define RELAY1_PIN 26
+#define RELAY2_PIN 25
+#define RELAY3_PIN 33
+#define RELAY4_PIN 32
 
 // Create DHT instance
 DHT dht(DHTPIN, DHTTYPE);
