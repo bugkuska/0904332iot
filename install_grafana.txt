@@ -1,0 +1,31 @@
+กรณีที่เป็น root แล้ว
+$ คือ user ธรรมดา ถ้าจะเปลี่ยนเป็น root ให้ใช้คำสั่ง $ su - และใส่ password
+# คือ root สามารถพิมพ์คำสั่งได้เลย
+
+# mkdir grafana
+# cd grafana/
+# apt install -y apt-transport-https
+# apt install -y software-properties-common wget
+# wget -q -O /usr/share/keyrings/grafana.key https://apt.grafana.com/gpg.key
+# echo "deb [signed-by=/usr/share/keyrings/grafana.key] https://apt.grafana.com stable main" | tee -a /etc/apt/sources.list.d/grafana.list
+deb [signed-by=/usr/share/keyrings/grafana.key] https://apt.grafana.com stable main
+# apt update
+# apt install grafana-enterprise
+Do you want to continue? [Y/n] y >> enter
+
+#systemctl daemon-reload
+#systemctl start grafana-server
+#systemctl status grafana-server
+#systemctl enable grafana-server
+
+
+Check service port (3000)
+#netstat -na | grep tcp
+
+http://ip-address:3000
+
+defualt user&password : admin, admin
+
+
+ 
+
