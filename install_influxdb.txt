@@ -8,6 +8,13 @@ Password:
 เปิด Virtual Manager > การตั้งค่า > เครือข่าย > การส่งต่อพอร์ต
 เพิ่มพอร์ต 
 ชื่อ: ssh , โพรโทคอล: TCP, ไอพีของโฮสต์ : 127.0.0.1, พอร์ตของโฮสต์ : 22, ไอพีของเกสต์ : เว้นว่าง, พอร์ตของเกสต์ : 22
+
+Download putty สำหรับ Remote
+login as: user
+password: 
+$su -
+password:
+#
 #mkdir influxdb
 #cd influxdb/
 #apt install -y gpg
