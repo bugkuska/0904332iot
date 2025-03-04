@@ -65,7 +65,7 @@ void setup() {
 
   reconnectWiFi();  // เชื่อมต่อ Wi-Fi ครั้งแรก
   //Blynk.config(auth, "ip-address-blynk-local-server", 8080);  // ตั้งค่า Blynk Server
-  Blynk.begin(auth, ssid, pass, "iotservices.thddns.net", 5535);
+  Blynk.begin(auth, ssid, pass, "10.119.96.69", 8080);
   if (!client.validateConnection()) {  // ตรวจสอบการเชื่อมต่อ InfluxDB
     Serial.println("InfluxDB connection failed!");
   }
