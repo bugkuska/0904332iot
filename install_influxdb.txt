@@ -5,6 +5,7 @@ Password:
 #apt install net-tools -y
 =====================================================
 ทำการตั้งค่า Port forwarding และ Remote ผ่าน putty
+เปิด Virtual Manager > การตั้งค่า > เครือข่าย > การส่งต่อพอร์ต
 #mkdir influxdb
 #cd influxdb/
 #apt install -y gpg
