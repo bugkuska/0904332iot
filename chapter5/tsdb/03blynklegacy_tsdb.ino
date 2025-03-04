@@ -9,7 +9,7 @@
 // Wi-Fi and Blynk credentials
 const char ssid[] = "";                         // ชื่อ Wi-Fi
 const char pass[] = "";                        // รหัสผ่าน Wi-Fi
-const char auth[] = ";  // Auth Token ของ Blynk
+const char auth[] = "";  // Auth Token ของ Blynk
 
 // InfluxDB Configuration
 // URL ของ InfluxDB Server ที่ใช้เก็บข้อมูลเซ็นเซอร์
