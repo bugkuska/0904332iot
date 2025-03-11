@@ -121,22 +121,26 @@ BLYNK_WRITE(V13) {
 
 // อ่านค่าอุณหภูมิและความชื้นจาก DHT
 void readDHTSensor() {
-  static float lastTemperature = 0.0;  // เก็บค่าอุณหภูมิครั้งก่อน
-  static float lastHumidity = 0.0;     // เก็บค่าความชื้นครั้งก่อน
+  float temperature = dht.readTemperature();
+  float humidity = dht.readHumidity();
 
-  float temperature = dht.readTemperature();  // อ่านค่าอุณหภูมิจาก DHT
-  float humidity = dht.readHumidity();        // อ่านค่าความชื้นจาก DHT
-
-  if (!isnan(temperature) && !isnan(humidity)) {  // ตรวจสอบว่าค่าไม่เป็น NaN
-    Serial.print("Temp: ");
-    Serial.print(temperature);
-    Serial.print("C, Humidity: ");
-    Serial.println(humidity);
-    // ส่งค่าอุณหภูมิและความชื้นไปยัง Blynk
-    Blynk.virtualWrite(V1, temperature);  // ส่งค่าอุณหภูมิไปยัง Virtual Pin V1
-    Blynk.virtualWrite(V2, humidity);     // ส่งค่าความชื้นไปยัง Virtual Pin V2
+  if (!isnan(temperature) && !isnan(humidity)) {
+    Serial.printf("Temp: %.2fC, Humidity: %.2f\n", temperature, humidity);
+    Blynk.virtualWrite(V1, temperature);
+    Blynk.virtualWrite(V2, humidity);
+    
+    // ส่งข้อมูลไปยัง InfluxDB
+    sensor.clearFields();
+    sensor.addField("temperature", temperature);
+    sensor.addField("humidity", humidity);
+    if (!client.writePoint(sensor)) {
+      Serial.print("InfluxDB write failed: ");
+      Serial.println(client.getLastErrorMessage());
+    } else {
+      Serial.println("Data sent to InfluxDB successfully.");
+    }
   } else {
-    Serial.println("Failed to read from DHT sensor!");  // แสดงข้อความเมื่ออ่านค่าไม่ได้
+    Serial.println("Failed to read from DHT sensor!");
   }
 }
 
