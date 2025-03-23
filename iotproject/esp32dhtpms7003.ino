@@ -88,9 +88,6 @@ void readDHTSensor() {
 
 // === อ่านค่า PM2.5 จาก PMS7003 ===
 void readPM25() {
-  while (pmsSerial.available() > 0) pmsSerial.read();  // ล้างบัฟเฟอร์ก่อนอ่าน
-  delay(100);  // รอข้อมูลเข้า
-
   if (pmsSerial.available() >= 32) {
     if (pmsSerial.read() == 0x42 && pmsSerial.read() == 0x4D) {
       buffer[0] = 0x42;
@@ -148,6 +145,31 @@ void reconnectBlynk() {
     }
     lastReconnectAttempt = now;
   }
+}
+
+// === ควบคุม Relay จาก Blynk ===
+BLYNK_WRITE(V10) {
+  int state = param.asInt();
+  digitalWrite(RELAY1_PIN, state);
+  Serial.println(state ? "🔌 Relay 1 ON" : "🔌 Relay 1 OFF");
+}
+
+BLYNK_WRITE(V11) {
+  int state = param.asInt();
+  digitalWrite(RELAY2_PIN, state);
+  Serial.println(state ? "🔌 Relay 2 ON" : "🔌 Relay 2 OFF");
+}
+
+BLYNK_WRITE(V12) {
+  int state = param.asInt();
+  digitalWrite(RELAY3_PIN, state);
+  Serial.println(state ? "🔌 Relay 3 ON" : "🔌 Relay 3 OFF");
+}
+
+BLYNK_WRITE(V13) {
+  int state = param.asInt();
+  digitalWrite(RELAY4_PIN, state);
+  Serial.println(state ? "🔌 Relay 4 ON" : "🔌 Relay 4 OFF");
 }
 
 // === Loop หลัก ===
