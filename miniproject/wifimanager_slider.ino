@@ -114,26 +114,29 @@ BLYNK_WRITE(V13) {
 }
 
 // 🔹 อ่านอุณหภูมิและความชื้น
+// อ่านค่าอุณหภูมิและความชื้นจาก DHT
 void readDHTSensor() {
-  float temperature = dht.readTemperature();
-  float humidity = dht.readHumidity();
+    float temperature = dht.readTemperature();
+    float humidity = dht.readHumidity();
 
-  if (!isnan(temperature) && !isnan(humidity)) {
-    Serial.printf("🌡 Temp: %.2f°C, 💧 Humidity: %.2f%%\n", temperature, humidity);
-    Blynk.virtualWrite(V1, temperature);
-    Blynk.virtualWrite(V2, humidity);
+    if (!isnan(temperature) && !isnan(humidity)) {
+        Serial.printf("🌡 Temp: %.2f°C, 💧 Humidity: %.2f%%\n", temperature, humidity);
+        Blynk.virtualWrite(V1, temperature);
+        Blynk.virtualWrite(V2, humidity);
 
-    if (temperature > tempThreshold) {
-      sendTelegramMessage("🔥 แจ้งเตือน! อุณหภูมิสูงเกินกำหนด (" + 
-        String(tempThreshold) + "°C): " + String(temperature) + "°C");
+        // 🔴 **ใช้ค่า Slider แทนค่าคงที่**
+        if (temperature > tempThreshold) {  // ถ้าอุณหภูมิสูงกว่าเกณฑ์
+            String msg = "🔥 แจ้งเตือน! อุณหภูมิสูงเกินกำหนด (" + String(tempThreshold) + "°C): " + String(temperature) + "°C";
+            sendTelegramMessage(msg);
+        }
+        if (humidity < humidityThreshold) {  // ถ้าความชื้นต่ำกว่าเกณฑ์
+            String msg = "💧 แจ้งเตือน! ความชื้นต่ำกว่ากำหนด (" + String(humidityThreshold) + "%): " + String(humidity) + "%";
+            sendTelegramMessage(msg);
+        }
+
+    } else {
+        Serial.println("❌ Failed to read from DHT sensor!");
     }
-    if (humidity < humidityThreshold) {
-      sendTelegramMessage("💧 แจ้งเตือน! ความชื้นต่ำกว่ากำหนด (" + 
-        String(humidityThreshold) + "%): " + String(humidity) + "%");
-    }
-  } else {
-    Serial.println("❌ Failed to read from DHT sensor!");
-  }
 }
 
 // 🔹 อ่านค่าความชื้นในดิน
