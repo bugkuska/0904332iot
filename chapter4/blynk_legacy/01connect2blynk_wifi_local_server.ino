@@ -1,12 +1,7 @@
-/*
-Libraries
-1. Blynk : https://downloads.arduino.cc/libraries/github.com/blynkkk/Blynk-1.0.1.zip
-*/
-
 #define BLYNK_PRINT Serial
 #include <WiFi.h>
 #include <WiFiClient.h>
-#include <BlynkSimpleEsp32.h>
+#include <BlynkSimpleEsp32.h>  //Blynk Library ต้องเป็น Version 0.6.x เท่านั้น ห้ามใช้ Version 1.x.x
 
 // Wi-Fi and Blynk credentials
 const char ssid[] = "Your_SSID";        // Your Wi-Fi SSID
