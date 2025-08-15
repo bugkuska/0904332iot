@@ -1,5 +1,6 @@
 #include<Wire.h>
-#include<LiquidCrystal_I2C.h>      //https://github.com/bugkuska/esp32/raw/main/basic/lcd/LiquidCrystal_i2c.zip
+#include<LiquidCrystal_I2C.h>     
+//Download ได้จาก https://drive.google.com/file/d/1hkmODw9q8CdxQx99Bp1Eu2foACQ-C4Sx/view?usp=sharing
 LiquidCrystal_I2C lcd(0x27,20,4);
 
 //dht11,dht22
