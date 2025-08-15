@@ -1,134 +1,117 @@
-#define BLYNK_PRINT Serial
-#include <WiFi.h>
-#include <WiFiClient.h>
-#include <BlynkSimpleEsp32.h>
-#include <DHT.h>
+#define BLYNK_PRINT Serial                               // ให้ไลบรารี Blynk พิมพ์ข้อความดีบักออก Serial
+#include <WiFi.h>                                        // ไลบรารี Wi-Fi สำหรับ ESP32
+#include <WiFiClient.h>                                  // ไลบรารี client TCP/IP (ถูกใช้โดย Blynk)
+#include <BlynkSimpleEsp32.h>                            // ไลบรารี Blynk สำหรับ ESP32 (แนะนำใช้เวอร์ชัน 0.6.x)
+#include <DHT.h>                                         // ไลบรารีเซ็นเซอร์ DHT (Adafruit)
 
-// Wi-Fi and Blynk credentials
-const char ssid[] = "Sirindhorn_Floor_2-4";        // Your Wi-Fi SSID
-const char pass[] = "";   // Your Wi-Fi password
-const char auth[] = "OUVoNemiCMONaENUF4Ze-oF55sBH2YHy"; // Auth token from Blynk app
+// -------- Wi-Fi และ Blynk credentials --------
+const char ssid[] = "";                                  // ชื่อเครือข่าย Wi-Fi (ใส่ของคุณ)
+const char pass[] = "";                                  // รหัสผ่าน Wi-Fi (ใส่ของคุณ)
+const char auth[] = "";                                  // Auth Token จากแอป Blynk (โครงการของคุณ)
 
-// GPIO configuration
-#define LED_PIN 2
-#define DHTPIN 15          // GPIO15 connected to DHT sensor
-#define DHTTYPE DHT11      // DHT type: DHT11 or DHT22
+// -------- กำหนดขา GPIO --------
+#define LED_PIN 2                                        // ใช้ GPIO2 ควบคุม LED (หรือ LED บนบอร์ด ESP32)
+#define DHTPIN 15                                        // GPIO15 ต่อกับขา DATA ของ DHT
+#define DHTTYPE DHT11                                    // ประเภทเซ็นเซอร์ DHT (เปลี่ยนเป็น DHT22 ได้หากใช้รุ่นนั้น)
 
-// Create DHT instance
-DHT dht(DHTPIN, DHTTYPE);
+// -------- สร้างอินสแตนซ์ DHT --------
+DHT dht(DHTPIN, DHTTYPE);                                // สร้างออบเจกต์ DHT เพื่อนำไปอ่านอุณหภูมิ/ความชื้น
 
-// Timer for periodic tasks
-BlynkTimer timer;
+// -------- ตัวตั้งเวลา (ภายในไลบรารี Blynk) --------
+BlynkTimer timer;                                        // ใช้ตั้งงานทำซ้ำตามช่วงเวลา (ไม่บล็อก loop)
 
-// Function prototypes
-void checkConnections();
-void readDHTSensor();
+// -------- ประกาศต้นแบบฟังก์ชัน --------
+void checkConnections();                                  // เช็กสถานะการเชื่อมต่อ Wi-Fi และ Blynk
+void readDHTSensor();                                     // อ่านค่าจากเซ็นเซอร์ DHT แล้วส่งไป Blynk
 
 void setup() {
-  // Initialize serial communication
-  Serial.begin(9600);
+  Serial.begin(9600);                                     // เปิด Serial Monitor ที่ 9600 bps สำหรับดีบัก
 
-  // Configure LED pin
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
+  pinMode(LED_PIN, OUTPUT);                               // ตั้งโหมดขา LED เป็นเอาต์พุต
+  digitalWrite(LED_PIN, LOW);                             // ปิด LED เป็นค่าเริ่มต้น
 
-  // Initialize DHT sensor
-  dht.begin();
+  dht.begin();                                            // เริ่มต้นการทำงานของเซ็นเซอร์ DHT
 
-  // Connect to Wi-Fi
-  Serial.print("Connecting to Wi-Fi: ");
-  Serial.println(ssid);
-  WiFi.begin(ssid, pass);
+  Serial.print("Connecting to Wi-Fi: ");                  // แสดงว่ากำลังเชื่อมต่อ Wi-Fi
+  Serial.println(ssid);                                   // พิมพ์ชื่อ Wi-Fi ที่จะเชื่อม
+  WiFi.begin(ssid, pass);                                 // เริ่มเชื่อมต่อ Wi-Fi ด้วย SSID/PASSWORD
 
-  // Wait for Wi-Fi connection
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+  while (WiFi.status() != WL_CONNECTED) {                 // รอจนกว่าจะเชื่อมต่อสำเร็จ
+    delay(500);                                           // หน่วงสั้น ๆ ระหว่างรอ
+    Serial.print(".");                                    // พิมพ์จุดแสดงความคืบหน้า
   }
-  Serial.println("\nWi-Fi connected");
-  Serial.print("IP Address: ");
-  Serial.println(WiFi.localIP());
+  Serial.println("\nWi-Fi connected");                    // แจ้งว่าเชื่อมต่อ Wi-Fi แล้ว
+  Serial.print("IP Address: ");                           // พิมพ์หัวข้อ IP
+  Serial.println(WiFi.localIP());                         // แสดง IP ที่ได้รับจากเราเตอร์
 
-  // Enable auto-reconnect for Wi-Fi
-  WiFi.setAutoReconnect(true);
-  WiFi.persistent(true);
+  WiFi.setAutoReconnect(true);                            // ให้เชื่อมต่อ Wi-Fi ใหม่อัตโนมัติเมื่อหลุด
+  WiFi.persistent(true);                                  // บันทึกค่าการเชื่อมต่อไว้ในหน่วยความจำถาวร
 
-  // Connect to Blynk server
-  Serial.println("Connecting to Blynk server...");
-  Blynk.begin(auth, ssid, pass, "10.119.0.48", 8080);
+  Serial.println("Connecting to Blynk server...");        // แจ้งว่ากำลังเชื่อมต่อ Blynk Server (โลคัล)
+  Blynk.begin(auth, ssid, pass, "ip-address", 8080);     // เชื่อมต่อ Blynk ด้วย Token/SSID/PASS/เซิร์ฟเวอร์/พอร์ต
 
-  // Set up periodic tasks
-  timer.setInterval(2000L, readDHTSensor);   // Read DHT every 2 seconds
-  timer.setInterval(5000L, checkConnections); // Check connections every 5 seconds
+  timer.setInterval(2000L, readDHTSensor);                // ตั้งให้อ่าน DHT ทุก ๆ 2000 ms (เหมาะกับ DHT11)
+  timer.setInterval(5000L, checkConnections);             // ตั้งให้ตรวจการเชื่อมต่อทุก 5000 ms
 }
 
-// Callback when Blynk is connected
+// -------- ถูกเรียกอัตโนมัติเมื่อเชื่อม Blynk สำเร็จ --------
 BLYNK_CONNECTED() {
-  Serial.println("Blynk connected!");
-  Blynk.syncAll(); // Synchronize all Blynk states
-  
-  // บังคับเปิด LED หลังจาก sync
-  digitalWrite(LED_PIN, HIGH);
-  Serial.println("LED state set to: ON (forced ON after connection)");
+  Serial.println("Blynk connected!");                     // แจ้งสถานะเชื่อมต่อ Blynk แล้ว
+  Blynk.syncAll();                                        // ขอซิงค์สถานะ Virtual Pins ทั้งหมดจากเซิร์ฟเวอร์
+
+  digitalWrite(LED_PIN, HIGH);                            // ตัวอย่าง: บังคับเปิด LED หลังเชื่อมต่อสำเร็จ
+  Serial.println("LED state set to: ON (forced after connection)"); // พิมพ์สถานะ LED
 }
 
-
-// Callback to control LED from Blynk app
+// -------- คอลแบ็กเมื่อมีการเขียนค่าไปยัง Virtual Pin V0 --------
 BLYNK_WRITE(V0) {
-  int ledState = param.asInt(); // Get value from Blynk app (0 or 1)
-  digitalWrite(LED_PIN, ledState); // Set LED state
-  Serial.print("LED state set to: ");
-  Serial.println(ledState ? "ON" : "OFF");
+  int ledState = param.asInt();                           // อ่านค่าจากแอป Blynk (0 = OFF, 1 = ON)
+  digitalWrite(LED_PIN, ledState);                        // สั่ง LED ตามค่าที่ได้รับ
+  Serial.print("LED state set to: ");                     // พิมพ์สถานะ LED
+  Serial.println(ledState ? "ON" : "OFF");                // แสดงเป็นข้อความอ่านง่าย
 }
 
-// Function to read DHT sensor
+// -------- อ่านค่าจาก DHT แล้วส่งขึ้น Blynk --------
 void readDHTSensor() {
-  float temperature = dht.readTemperature(); // Read temperature in Celsius
-  float humidity = dht.readHumidity();       // Read humidity
+  float temperature = dht.readTemperature();              // อ่านอุณหภูมิ (°C)
+  float humidity    = dht.readHumidity();                 // อ่านความชื้นสัมพัทธ์ (%RH)
 
-  if (isnan(temperature) || isnan(humidity)) {
-    Serial.println("Failed to read from DHT sensor!");
-    return;
+  if (isnan(temperature) || isnan(humidity)) {            // ถ้าอ่านไม่ได้ (NaN) ให้แจ้งเตือน
+    Serial.println("Failed to read from DHT sensor!");    // พิมพ์แจ้งข้อผิดพลาด
+    return;                                               // ยกเลิกรอบนี้ ไม่ส่งค่าขึ้น Blynk
   }
 
-  // Print to Serial Monitor
-  Serial.print("Temperature: ");
-  Serial.print(temperature);
-  Serial.print("°C, Humidity: ");
-  Serial.print(humidity);
-  Serial.println("%");
+  Serial.print("Temperature: ");                          // พิมพ์หัวข้ออุณหภูมิ
+  Serial.print(temperature);                              // พิมพ์ค่าอุณหภูมิ
+  Serial.print("°C, Humidity: ");                         // หน่วย °C และหัวข้อความชื้น
+  Serial.print(humidity);                                 // พิมพ์ค่าความชื้น
+  Serial.println("%");                                    // หน่วย %
 
-  // Send to Blynk app (Virtual Pins V1 and V2)
-  Blynk.virtualWrite(V1, temperature);
-  Blynk.virtualWrite(V2, humidity);
+  Blynk.virtualWrite(V1, temperature);                    // ส่งค่าอุณหภูมิไปยัง Virtual Pin V1
+  Blynk.virtualWrite(V2, humidity);                       // ส่งค่าความชื้นไปยัง Virtual Pin V2
 }
 
-// Function to check Wi-Fi and Blynk connection
+// -------- ตรวจสอบการเชื่อมต่อ Wi-Fi / Blynk และกู้คืนเมื่อหลุด --------
 void checkConnections() {
-  // Check Wi-Fi status
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("Wi-Fi disconnected! Reconnecting...");
-    WiFi.begin(ssid, pass);
-    while (WiFi.status() != WL_CONNECTED) {
-      delay(500);
-      Serial.print(".");
+  if (WiFi.status() != WL_CONNECTED) {                    // ถ้า Wi-Fi หลุด
+    Serial.println("Wi-Fi disconnected! Reconnecting...");// พิมพ์แจ้งเตือน
+    WiFi.begin(ssid, pass);                               // เริ่มเชื่อมต่อใหม่
+    while (WiFi.status() != WL_CONNECTED) {               // รอจนกว่าจะเชื่อมต่อสำเร็จ
+      delay(500);                                         // หน่วงสั้น ๆ
+      Serial.print(".");                                  // พิมพ์จุดแสดงความคืบหน้า
     }
-    Serial.println("\nWi-Fi reconnected");
+    Serial.println("\nWi-Fi reconnected");                // แจ้งว่าเชื่อม Wi-Fi กลับมาแล้ว
   }
 
-  // Check Blynk connection
-  if (!Blynk.connected()) {
-    Serial.println("Blynk disconnected! Reconnecting...");
-    Blynk.connect();
+  if (!Blynk.connected()) {                               // ถ้า Blynk หลุด
+    Serial.println("Blynk disconnected! Reconnecting...");// แจ้งเตือน
+    Blynk.connect();                                      // ขอเชื่อมต่อ Blynk ใหม่
   }
 }
 
 void loop() {
-  // Run Blynk processes
-  if (Blynk.connected()) {
-    Blynk.run();
+  if (Blynk.connected()) {                                // ทำงาน Blynk เฉพาะเมื่อเชื่อมต่ออยู่
+    Blynk.run();                                          // ประมวลผลงานภายในของ Blynk (คอลแบ็ก/ซิงค์)
   }
-  
-  // Run timer tasks
-  timer.run();
+  timer.run();                                            // ให้ตัวตั้งเวลาทำงาน (เรียกฟังก์ชันตามกำหนด)
 }
