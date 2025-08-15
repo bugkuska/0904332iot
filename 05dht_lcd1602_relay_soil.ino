@@ -1,6 +1,6 @@
 #include <Wire.h>                         // ไลบรารีสื่อสาร I2C (ใช้กับ LCD I2C และอุปกรณ์ I2C อื่น ๆ)
 #include <LiquidCrystal_I2C.h>            // ไลบรารีควบคุมจอ LCD ผ่าน I2C
-//https://github.com/bugkuska/esp32/raw/main/basic/lcd/LiquidCrystal_i2c.zip
+//Download ได้จาก https://drive.google.com/file/d/1hkmODw9q8CdxQx99Bp1Eu2foACQ-C4Sx/view?usp=sharing
 LiquidCrystal_I2C lcd(0x27, 16, 2);       // สร้างออบเจกต์ LCD ที่แอดเดรส 0x27 ขนาด 16 คอลัมน์ 2 แถว (บางจออาจเป็น 0x3F)
 
 #define SOIL_PIN 35                       // กำหนดขา ADC ของ ESP32 สำหรับอ่านค่าความชื้นดิน (GPIO35 เป็น input-only)
