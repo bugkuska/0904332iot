@@ -1,34 +1,39 @@
-#include "DHT.h"
+#include <DHT.h>                 // ใช้ไลบรารี Adafruit DHT
 
-#define DHTPIN 4        // กำหนดขาที่เชื่อมต่อกับเซ็นเซอร์ DHT11/DHT22
-#define DHTTYPE DHT11   // เลือกประเภทเซ็นเซอร์ DHT11 หรือ DHT22 (ใช้ DHT11 ในที่นี้)
+// ------------------ ตั้งค่าเซ็นเซอร์ ------------------
+#define DHTPIN   15              // ขาที่เชื่อมต่อ DATA ของ DHT11
+#define DHTTYPE  DHT11           // ประเภทเซ็นเซอร์ (เปลี่ยนเป็น DHT22 ได้หากใช้รุ่นนั้น)
+DHT dht(DHTPIN, DHTTYPE);        // สร้างอ็อบเจกต์เซ็นเซอร์
 
-DHT dht(DHTPIN, DHTTYPE); // สร้างอ็อบเจ็กต์ DHT
+// ระยะห่างการอ่าน (มิลลิวินาที) — DHT11 แนะนำ ≥ 2000 ms
+const unsigned long READ_INTERVAL_MS = 2000;
 
 void setup() {
-  Serial.begin(115200);    // เริ่มต้นการสื่อสารผ่าน Serial Monitor
-  dht.begin();             // เริ่มการทำงานของเซ็นเซอร์ DHT
+  Serial.begin(9600);                          // ความเร็ว Serial สูงขึ้น อ่านง่าย ลื่นกว่า
+  dht.begin();                                    // เริ่มทำงานเซ็นเซอร์
+  Serial.println(F("เริ่มต้น DHT... พร้อมอ่านค่าทุก 2 วินาที"));
 }
 
 void loop() {
-  // รอเวลาให้เซ็นเซอร์พร้อม
-  delay(2000);
+  // รอเวลาให้ถึงรอบอ่านถัดไป (บล็อกแบบง่าย ๆ)
+  delay(READ_INTERVAL_MS);
 
-  // อ่านค่าอุณหภูมิและความชื้น
-  float h = dht.readHumidity();        // อ่านค่าความชื้น
-  float t = dht.readTemperature();     // อ่านค่าอุณหภูมิ (ในเซลเซียส)
+  // อ่านค่า
+  float h = dht.readHumidity();                   // ความชื้นสัมพัทธ์ (%RH)
+  float t = dht.readTemperature();                // อุณหภูมิองศาเซลเซียส
+  // float f = dht.readTemperature(true);         // (ตัวเลือก) องศาฟาเรนไฮต์
 
   // ตรวจสอบค่าที่อ่านได้
   if (isnan(h) || isnan(t)) {
-    Serial.println("ไม่สามารถอ่านค่าเซ็นเซอร์ได้");
-    return;
+    Serial.println(F("อ่านค่าเซ็นเซอร์ไม่สำเร็จ (NaN) — ตรวจสาย/ไฟเลี้ยง/ค่า DHTTYPE"));
+    return;                                       // ออกจาก loop รอบนี้ แล้วรอรอบถัดไป
   }
 
-  // แสดงค่าที่อ่านได้
-  Serial.print("อุณหภูมิ: ");
-  Serial.print(t);
-  Serial.print(" *C");
-  Serial.print("  ความชื้น: ");
-  Serial.print(h);
-  Serial.println(" %");
+  // แสดงผล
+  Serial.print(F("อุณหภูมิ: "));
+  Serial.print(t, 1);                             // ทศนิยม 1 ตำแหน่ง อ่านง่าย
+  Serial.print(F(" \xC2\xB0""C"));                // สัญลักษณ์องศา °C (พิมพ์ได้ใน Serial)
+  Serial.print(F("  |  ความชื้น: "));
+  Serial.print(h, 1);
+  Serial.println(F(" %RH"));
 }
