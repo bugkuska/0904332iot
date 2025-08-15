@@ -1,212 +1,242 @@
-#include <Wire.h>              // ใช้สำหรับการสื่อสาร I2C
-#include <WiFi.h>              // ใช้สำหรับการเชื่อมต่อ Wi-Fi
-#include <WiFiClient.h>        // ใช้สำหรับการเชื่อมต่อ Wi-Fi Client
-#include <BlynkSimpleEsp32.h>  // ใช้สำหรับการเชื่อมต่อกับ Blynk Server *ให้ใช้ Blynk version 0.60 เท่านั้น
-#include <DHT.h>               // ไลบรารีสำหรับเซ็นเซอร์ DHT (ตรวจวัดอุณหภูมิและความชื้น)
+/******************** Includes ********************/
+#define BLYNK_PRINT Serial                                   // ให้ Blynk พิมพ์ข้อความดีบักออก Serial Monitor
+#include <Wire.h>                                            // ไลบรารี I2C (ใช้กับ LCD)
+#include <LiquidCrystal_I2C.h>                               // ไลบรารีควบคุม LCD1602 ผ่าน I2C
+#include <DHT.h>                                             // ไลบรารีเซ็นเซอร์ DHT (Adafruit)
+#include <WiFi.h>                                            // ไลบรารี Wi-Fi สำหรับ ESP32
+#include <WiFiClient.h>                                      // ไลบรารี TCP client
+#include <BlynkSimpleEsp32.h>                                // ไลบรารี Blynk 0.6.x สำหรับ ESP32
+#include <HTTPClient.h>                                      // ← เพิ่ม: ใช้ส่ง HTTP ไปยัง Telegram Bot API
 
-//การแจ้งเตือนผ่าน Telegram
-#include <HTTPClient.h> // ใช้สำหรับส่ง HTTP Request
-// 🔹 กำหนด Token และ Chat ID หรือ Chat ID ของกลุ่ม
-const char* botToken = ""; //Telegram HTTP API Token
-const char* chatID = ""; //Chat ID หรือ Chat ID ของกลุ่ม
+/******************** LCD ********************/
+LiquidCrystal_I2C lcd(0x27, 16, 2);                          // LCD I2C address 0x27 ขนาด 16x2 (บางบอร์ดอาจเป็น 0x3F)
 
-float tempThreshold = 30.0;  // ค่าอุณหภูมิที่แจ้งเตือน (เริ่มต้น 30°C)
-float humidityThreshold = 40.0; // ค่าความชื้นที่แจ้งเตือน (เริ่มต้น 40%)
+/******************** Pins ********************/
+#define SOIL_PIN     35                                      // ADC1 ช่อง GPIO35 (input-only) สำหรับ Soil
+#define RELAY1_PIN    4                                      // รีเลย์ช่อง 1
+#define RELAY2_PIN    5                                      // รีเลย์ช่อง 2
+#define RELAY3_PIN   18                                      // รีเลย์ช่อง 3
+#define RELAY4_PIN   19                                      // รีเลย์ช่อง 4
+#define DHTPIN       15                                      // ขา DATA ของ DHT
+#define DHTTYPE  DHT11                                       // ประเภท DHT: DHT11 (เปลี่ยนเป็น DHT22 ได้)
+#define STATUS_LED    2                                      // GPIO2: เปิดเมื่อเชื่อม Blynk สำเร็จ (ไฟสถานะ)
 
-// Wi-Fi and Blynk credentials
-const char ssid[] = "";                         // ชื่อ Wi-Fi
-const char pass[] = "";                        // รหัสผ่าน Wi-Fi
-const char auth[] = "";  // Auth Token ของ Blynk
+/******************** Sensors ********************/
+DHT dht(DHTPIN, DHTTYPE);                                    // ออบเจกต์ DHT สำหรับอ่านอุณหภูมิ/ความชื้นอากาศ
 
-// GPIO Configuration
-#define LED_PIN 2      // ขาที่ใช้ควบคุม LED
-#define DHTPIN 15      // ขาที่เชื่อมต่อกับเซ็นเซอร์ DHT
-#define DHTTYPE DHT11  // กำหนดประเภทเซ็นเซอร์ DHT เป็น DHT11
-#define RELAY1_PIN 26  // GPIO สำหรับรีเลย์ 1
-#define RELAY2_PIN 25  // GPIO สำหรับรีเลย์ 2
-#define RELAY3_PIN 33  // GPIO สำหรับรีเลย์ 3
-#define RELAY4_PIN 32  // GPIO สำหรับรีเลย์ 4
+/******************** Soil Calibration ********************/
+const int SOIL_DRY_ADC = 3000;                               // ค่า ADC เมื่อดิน “แห้งมาก” (คาลิเบรตจากของจริง)
+const int SOIL_WET_ADC = 1200;                               // ค่า ADC เมื่อดิน “เปียกมาก” (คาลิเบรตจากของจริง)
 
-// DHT Initialization
-DHT dht(DHTPIN, DHTTYPE);  // กำหนดเซ็นเซอร์ DHT
+/******************** Blynk Credentials ********************/
+const char ssid[] = "";                                      // ชื่อ Wi-Fi (ใส่ของคุณ)
+const char pass[] = "";                                      // รหัสผ่าน Wi-Fi (ใส่ของคุณ)
+const char auth[] = "";                                      // Blynk Auth Token (จากแอป Blynk)
+const char BLYNK_SERVER_IP[] = "";                           // IP ของ Blynk Local Server
+const uint16_t BLYNK_SERVER_PORT = 8080;                     // พอร์ตเซิร์ฟเวอร์ (ปกติ 8080)
 
-// Timer and Relay States
-BlynkTimer timer;                        // ตัวจับเวลาสำหรับฟังก์ชันใน Blynk
-int relay1State = LOW;                   // สถานะเริ่มต้นของรีเลย์ 1
-int relay2State = LOW;                   // สถานะเริ่มต้นของรีเลย์ 2
-int relay3State = LOW;                   // สถานะเริ่มต้นของรีเลย์ 3
-int relay4State = LOW;                   // สถานะเริ่มต้นของรีเลย์ 4
-unsigned long lastReconnectAttempt = 0;  // เวลาที่พยายามเชื่อมต่อครั้งล่าสุด
+/******************** Timers ********************/
+BlynkTimer timer;                                            // ตัวตั้งเวลา non-blocking ของ Blynk
+const unsigned long DHT_INTERVAL_MS   = 2000;                // รอบเวลาอ่าน DHT (ms) — DHT11 แนะนำ ≥ 2000ms
+const unsigned long SOIL_INTERVAL_MS  = 1000;                // รอบเวลาอ่าน Soil (ms)
+const unsigned long RECONN_INTERVAL_MS = 5000;               // รอบเวลาลองเชื่อมต่อ Wi-Fi/Blynk ใหม่ (ms)
 
-// Function Prototypes (ประกาศฟังก์ชันล่วงหน้า เพื่อให้สามารถเรียกใช้งานได้ในโค้ดหลัก)
-// ฟังก์ชันสำหรับอ่านค่าจากเซ็นเซอร์ DHT (อุณหภูมิและความชื้น)
-void readDHTSensor();
-// ฟังก์ชันสำหรับเชื่อมต่อ WiFi อีกครั้ง หากการเชื่อมต่อหลุด
-void reconnectWiFi();
-// ฟังก์ชันสำหรับเชื่อมต่อ Blynk อีกครั้ง หากการเชื่อมต่อขาดหาย
-void reconnectBlynk();
+/******************** Forward Declarations ********************/
+void taskReadAndDisplay();                                    // อ่าน DHT/Soil แล้วอัปเดต Serial + LCD (ทำเสมอ)
+void taskSendToBlynk();                                       // ส่งค่าขึ้น Blynk เมื่อเชื่อมต่อแล้ว
+void taskReconnect();                                         // พยายามเชื่อมต่อ Wi-Fi/Blynk เป็นระยะ
+void showNetStatus();                                         // แสดงสถานะเครือข่ายบน LCD แถวล่าง
 
-// ฟั่งชั่น setup
+/************* Telegram Settings (เพิ่ม) *************/
+const char TELEGRAM_BOT_TOKEN[] = "";                         // ← ใส่ Token ของบอท Telegram
+const char TELEGRAM_CHAT_ID[]  = "";                          // ← ใส่ Chat ID หรือ Group ID ที่จะส่งข้อความ
+float tempThreshold = 30.0;                                   // ← เกณฑ์แจ้งเตือน: อุณหภูมิสูงกว่า (°C)
+float humidityThreshold = 40.0;                               // ← เกณฑ์แจ้งเตือน: ความชื้นต่ำกว่า (%RH)
+const unsigned long ALERT_COOLDOWN_MS = 60000UL;              // ← กันสแปม: ส่งเตือนซ้ำขั้นต่ำทุก 60 วินาที/เงื่อนไข
+unsigned long lastTempAlertMs = 0;                            // ← เวลาเตือนอุณหภูมิล่าสุด (ms)
+unsigned long lastHumiAlertMs = 0;                            // ← เวลาเตือนความชื้นล่าสุด (ms)
+
+/******************** Setup ********************/
 void setup() {
-  Serial.begin(9600);  // เริ่ม Serial Monitor ที่ความเร็ว 9600 bps
-  dht.begin();         // เริ่มต้นเซ็นเซอร์ DHT
+  Serial.begin(9600);                                         // เปิด Serial Monitor ที่ 9600 bps
+  dht.begin();                                                // เริ่มเซ็นเซอร์ DHT
 
-  pinMode(LED_PIN, OUTPUT);     // ตั้ง LED เป็น output
-  pinMode(RELAY1_PIN, OUTPUT);  // ตั้งรีเลย์ 1 เป็น output
-  pinMode(RELAY2_PIN, OUTPUT);  // ตั้งรีเลย์ 2 เป็น output
-  pinMode(RELAY3_PIN, OUTPUT);  // ตั้งรีเลย์ 3 เป็น output
-  pinMode(RELAY4_PIN, OUTPUT);  // ตั้งรีเลย์ 4 เป็น output
+  pinMode(SOIL_PIN, INPUT);                                   // ตั้งขา Soil เป็นอินพุต
+  pinMode(RELAY1_PIN, OUTPUT);                                // ตั้งรีเลย์ 1 เป็นเอาต์พุต
+  pinMode(RELAY2_PIN, OUTPUT);                                // ตั้งรีเลย์ 2 เป็นเอาต์พุต
+  pinMode(RELAY3_PIN, OUTPUT);                                // ตั้งรีเลย์ 3 เป็นเอาต์พุต
+  pinMode(RELAY4_PIN, OUTPUT);                                // ตั้งรีเลย์ 4 เป็นเอาต์พุต
+  digitalWrite(RELAY1_PIN, LOW);                              // ปิดรีเลย์ 1 ตอนเริ่ม (ปรับตาม Active-LOW/HIGH ของบอร์ดจริง)
+  digitalWrite(RELAY2_PIN, LOW);                              // ปิดรีเลย์ 2 ตอนเริ่ม
+  digitalWrite(RELAY3_PIN, LOW);                              // ปิดรีเลย์ 3 ตอนเริ่ม
+  digitalWrite(RELAY4_PIN, LOW);                              // ปิดรีเลย์ 4 ตอนเริ่ม
 
-  reconnectWiFi();  // เชื่อมต่อ Wi-Fi ครั้งแรก
-  //Blynk.config(auth, "ip-address-blynk-local-server", 8080);  // ตั้งค่า Blynk Server
-  Blynk.begin(auth, ssid, pass, "iotservices.thddns.net", 5535);  //ตัวอย่าง Blynk Public Server 
-  
-  timer.setInterval(10000L, readDHTSensor);   // อ่านค่า DHT ทุก 10 วินาที
-  timer.setInterval(5000L, reconnectWiFi);    // ตรวจสอบ Wi-Fi ทุก 5 วินาที
-  timer.setInterval(10000L, reconnectBlynk);  // ตรวจสอบ Blynk ทุก 10 วินาที
+  pinMode(STATUS_LED, OUTPUT);                                // ตั้ง GPIO2 เป็นเอาต์พุต
+  digitalWrite(STATUS_LED, LOW);                              // ดับไฟสถานะไว้ก่อน (ยังไม่ออนไลน์ Blynk)
+
+  lcd.begin();                                                // เริ่มต้นจอ LCD (อย่าเรียกใน loop)
+  lcd.backlight();                                            // เปิดไฟพื้นหลัง
+  lcd.clear();                                                // เคลียร์หน้าจอ
+  lcd.setCursor(0, 0);                                        // ไปแถว 1 คอลัมน์ 0
+  lcd.print("Booting...");                                    // ข้อความบูต
+  lcd.setCursor(0, 1);                                        // ไปแถว 2 คอลัมน์ 0
+  lcd.print("WiFi: connecting");                              // แจ้งกำลังเชื่อม Wi-Fi
+
+  WiFi.begin(ssid, pass);                                     // เริ่มเชื่อมต่อ Wi-Fi (ไม่บล็อกงานหลัก)
+  WiFi.setAutoReconnect(true);                                // ให้ต่อ Wi-Fi ใหม่อัตโนมัติเมื่อหลุด
+  WiFi.persistent(true);                                      // บันทึก config เครือข่ายไว้ถาวร
+
+  Blynk.config(auth, BLYNK_SERVER_IP, BLYNK_SERVER_PORT);     // กำหนดปลายทาง Blynk (ยังไม่ connect ทันที)
+  // ใช้ Blynk.config + Blynk.connect(timeout) เพื่อไม่ให้โปรแกรมค้างถ้าเน็ตล่ม
+
+  timer.setInterval(DHT_INTERVAL_MS,  taskReadAndDisplay);    // อ่าน/แสดงผลเซ็นเซอร์ทุก 2 วินาที (ทำเสมอ)
+  timer.setInterval(DHT_INTERVAL_MS,  taskSendToBlynk);       // ส่งค่าไป Blynk ทุก 2 วินาที (เฉพาะเมื่อเชื่อมต่อ)
+  timer.setInterval(RECONN_INTERVAL_MS, taskReconnect);       // พยายามเชื่อมต่อ Wi-Fi/Blynk ทุก 5 วินาที
 }
 
-// ฟังก์ชันที่ทำงานเมื่อ Blynk เชื่อมต่อสำเร็จ
+/******************** Blynk Connected Callback ********************/
 BLYNK_CONNECTED() {
-  Serial.println("Blynk connected!");  // แสดงข้อความใน Serial Monitor
-  Blynk.syncAll();                     // ซิงค์สถานะของปุ่มและค่าต่างๆ จากเซิร์ฟเวอร์ Blynk
-  digitalWrite(LED_PIN, HIGH);         // เปิด LED แสดงสถานะว่าเชื่อมต่อ Blynk แล้ว
+  Serial.println("Blynk connected!");                         // แจ้งสถานะต่อ Blynk สำเร็จ
+  Blynk.syncAll();                                            // ซิงค์สถานะ Virtual Pins ทั้งหมด
+  digitalWrite(STATUS_LED, HIGH);                             // เปิด GPIO2 เป็นไฟสถานะ
+  lcd.setCursor(0, 1);                                        // ไปแถวล่าง
+  lcd.print("Blynk: online   ");                              // แสดงสถานะออนไลน์ (เติมช่องว่างลบเศษอักษร)
 }
 
-// ฟังก์ชันที่ทำงานเมื่อ Blynk ขาดการเชื่อมต่อ
-BLYNK_DISCONNECTED() {
-  digitalWrite(LED_PIN, LOW);  // ปิด LED เพื่อแจ้งว่าการเชื่อมต่อกับ Blynk หายไป
+/******************** Relay Controls via Blynk (V10–V13) ********************/
+BLYNK_WRITE(V10) {                                            // ควบคุมรีเลย์ 1 ที่ V10
+  int st = param.asInt();                                     // รับค่า 0/1
+  digitalWrite(RELAY1_PIN, st);                               // เขียนสถานะถึงรีเลย์ 1 (ถ้า Active-LOW ให้ใช้ !st)
+  Serial.print("Relay 1 → "); Serial.println(st ? "ON" : "OFF"); // ดีบักสถานะ
 }
 
-// Slider ปรับค่าอุณหภูมิที่ต้องแจ้งเตือนเมื่ออุณหภูมิสูงกว่าระดับที่กำหนด
-BLYNK_WRITE(V3) {  
-    tempThreshold = param.asFloat();
-    Serial.print("🛠 ปรับค่าแจ้งเตือนอุณหภูมิเป็น: ");
-    Serial.print(tempThreshold);
-    Serial.println("°C");
+BLYNK_WRITE(V11) {                                            // ควบคุมรีเลย์ 2 ที่ V11
+  int st = param.asInt();                                     // รับค่า 0/1
+  digitalWrite(RELAY2_PIN, st);                               // เขียนสถานะถึงรีเลย์ 2
+  Serial.print("Relay 2 → "); Serial.println(st ? "ON" : "OFF"); // ดีบักสถานะ
 }
 
-// Slider ปรับค่าความชื้นที่ต้องแจ้งเตือนเมื่อความชื้นสูงกว่าระดับที่กำหนด
-BLYNK_WRITE(V4) {  
-    humidityThreshold = param.asFloat();
-    Serial.print("🛠 ปรับค่าแจ้งเตือนความชื้นเป็น: ");
-    Serial.print(humidityThreshold);
-    Serial.println("%");
+BLYNK_WRITE(V12) {                                            // ควบคุมรีเลย์ 3 ที่ V12
+  int st = param.asInt();                                     // รับค่า 0/1
+  digitalWrite(RELAY3_PIN, st);                               // เขียนสถานะถึงรีเลย์ 3
+  Serial.print("Relay 3 → "); Serial.println(st ? "ON" : "OFF"); // ดีบักสถานะ
 }
 
-// Callback to control Relay 1
-BLYNK_WRITE(V10) {
-  relay1State = param.asInt();
-  digitalWrite(RELAY1_PIN, relay1State);
-  Serial.print("Relay 1: ");
-  Serial.println(relay1State ? "ON" : "OFF");
+BLYNK_WRITE(V13) {                                            // ควบคุมรีเลย์ 4 ที่ V13
+  int st = param.asInt();                                     // รับค่า 0/1
+  digitalWrite(RELAY4_PIN, st);                               // เขียนสถานะถึงรีเลย์ 4
+  Serial.print("Relay 4 → "); Serial.println(st ? "ON" : "OFF"); // ดีบักสถานะ
 }
 
-// Callback to control Relay 2
-BLYNK_WRITE(V11) {
-  relay2State = param.asInt();
-  digitalWrite(RELAY2_PIN, relay2State);
-  Serial.print("Relay 2: ");
-  Serial.println(relay2State ? "ON" : "OFF");
-}
+/******************** Periodic Tasks ********************/
+void taskReadAndDisplay() {
+  float h = dht.readHumidity();                               // อ่านความชื้นอากาศ (%RH)
+  float t = dht.readTemperature();                            // อ่านอุณหภูมิ (°C)
+  int soilRaw = analogRead(SOIL_PIN);                         // อ่านค่า ADC ของ Soil (0–4095)
+  int span = SOIL_DRY_ADC - SOIL_WET_ADC;                     // ช่วงคาลิเบรต (แห้ง-เปียก)
+  if (span <= 0) span = 1;                                    // ป้องกันหารด้วยศูนย์
+  int soilPct = (int)(((float)(SOIL_DRY_ADC - soilRaw) * 100.0f) / span); // map ดิบ→%
+  soilPct = constrain(soilPct, 0, 100);                       // จำกัดช่วง 0–100%
 
-// Callback to control Relay 3
-BLYNK_WRITE(V12) {
-  relay3State = param.asInt();
-  digitalWrite(RELAY3_PIN, relay3State);
-  Serial.print("Relay 3: ");
-  Serial.println(relay3State ? "ON" : "OFF");
-}
+  Serial.print("T: "); Serial.print(t); Serial.print(" C | "); // พิมพ์อุณหภูมิลง Serial
+  Serial.print("H: "); Serial.print(h); Serial.print(" % | "); // พิมพ์ความชื้นอากาศลง Serial
+  Serial.print("Soil: "); Serial.print(soilPct); Serial.println(" %"); // พิมพ์ Soil% ลง Serial
 
-// Callback to control Relay 4
-BLYNK_WRITE(V13) {
-  relay4State = param.asInt();
-  digitalWrite(RELAY4_PIN, relay4State);
-  Serial.print("Relay 4: ");
-  Serial.println(relay4State ? "ON" : "OFF");
-}
+  lcd.setCursor(0, 0);                                        // ไปต้นบรรทัดแรก
+  lcd.print("T:");                                            // ป้ายกำกับอุณหภูมิ
+  if (isnan(t)) lcd.print("--.-"); else lcd.print(t, 1);       // ถ้าอ่านไม่ได้แสดง --.- มิฉะนั้นแสดงทศนิยม 1 ตำแหน่ง
+  lcd.print((char)223); lcd.print("C ");                      // สัญลักษณ์ °C
+  lcd.print("H:");                                            // ป้ายกำกับความชื้น
+  if (isnan(h)) lcd.print("--.-"); else lcd.print(h, 0);         // ❗พิมพ์ผิด? → ควรเป็น "--.-" (แก้ในของจริง); แสดงจำนวนเต็มถ้าอ่านได้
+  lcd.print("%");                                             // หน่วย %
 
-// อ่านค่าอุณหภูมิและความชื้นจาก DHT
-void readDHTSensor() {
-    float temperature = dht.readTemperature();
-    float humidity = dht.readHumidity();
+  lcd.setCursor(0, 1);                                        // ไปบรรทัดล่าง
+  lcd.print("Soil:");                                         // ป้ายกำกับ Soil
+  lcd.print(soilPct);                                         // แสดง Soil%
+  lcd.print("%    ");                                         // เติมช่องว่างเพื่อเคลียร์เศษตัวอักษรค้าง
 
-    if (!isnan(temperature) && !isnan(humidity)) {
-        Serial.printf("🌡 Temp: %.2f°C, 💧 Humidity: %.2f%%\n", temperature, humidity);
-        Blynk.virtualWrite(V1, temperature);
-        Blynk.virtualWrite(V2, humidity);
+  showNetStatus();                                            // อัปเดตสถานะเครือข่าย (เติมท้ายบรรทัดล่างให้พอดี)
 
-        // 🔴 **ใช้ค่า Slider แทนค่าคงที่**
-        if (temperature > tempThreshold) {  // ถ้าอุณหภูมิสูงกว่าเกณฑ์
-            String msg = "🔥 แจ้งเตือน! อุณหภูมิสูงเกินกำหนด (" + String(tempThreshold) + "°C): " + String(temperature) + "°C";
-            sendTelegramMessage(msg);
-        }
-        if (humidity < humidityThreshold) {  // ถ้าความชื้นต่ำกว่าเกณฑ์
-            String msg = "💧 แจ้งเตือน! ความชื้นต่ำกว่ากำหนด (" + String(humidityThreshold) + "%): " + String(humidity) + "%";
-            sendTelegramMessage(msg);
-        }
-
-    } else {
-        Serial.println("❌ Failed to read from DHT sensor!");
+  /***** เพิ่ม: ตรวจเกณฑ์แล้วแจ้งเตือน Telegram (ไม่บล็อก loop) *****/
+  if (!isnan(t) && (t > tempThreshold)) {                     // ถ้าอ่านอุณหภูมิได้ และสูงกว่าเกณฑ์ที่ตั้งไว้
+    if (millis() - lastTempAlertMs >= ALERT_COOLDOWN_MS) {    // เช็ก cooldown เพื่อกันสแปมแจ้งเตือน
+      String msg = "🔥 Temp High: " + String(t, 1) + "°C (>" + String(tempThreshold, 1) + "°C)"; // สร้างข้อความเตือน
+      sendTelegramMessage(msg);                               // ส่งข้อความไป Telegram
+      lastTempAlertMs = millis();                              // บันทึกเวลาแจ้งเตือนล่าสุด
     }
-}
-
-// เชื่อมต่อ Wi-Fi หากหลุด
-void reconnectWiFi() {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("Wi-Fi disconnected! Reconnecting...");
-    WiFi.begin(ssid, pass);
-    unsigned long start = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - start < 10000) {
-      delay(500);
-      Serial.print(".");
-    }
-    if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("Wi-Fi reconnected!");
-    } else {
-      Serial.println("Wi-Fi reconnect failed.");
+  }
+  if (!isnan(h) && (h < humidityThreshold)) {                 // ถ้าอ่านความชื้นได้ และต่ำกว่าเกณฑ์ที่ตั้งไว้
+    if (millis() - lastHumiAlertMs >= ALERT_COOLDOWN_MS) {    // เช็ก cooldown เพื่อกันสแปมแจ้งเตือน
+      String msg = "💧 Humidity Low: " + String(h, 0) + "% (<" + String(humidityThreshold, 0) + "%)"; // ข้อความเตือน
+      sendTelegramMessage(msg);                               // ส่งข้อความไป Telegram
+      lastHumiAlertMs = millis();                              // บันทึกเวลาแจ้งเตือนล่าสุด
     }
   }
 }
 
-// เชื่อมต่อ Blynk หากหลุด
-void reconnectBlynk() {
-  unsigned long now = millis();
-  if (!Blynk.connected() && (now - lastReconnectAttempt > 10000)) {
-    Serial.println("Blynk disconnected! Attempting to reconnect...");
-    if (Blynk.connect()) {
-      Serial.println("Blynk reconnected!");
-    } else {
-      Serial.println("Blynk reconnect failed.");
+void taskSendToBlynk() {
+  if (!Blynk.connected()) return;                             // ถ้ายังไม่เชื่อม Blynk ให้ข้าม (ทำงานออฟไลน์ต่อ)
+  float h = dht.readHumidity();                               // อ่านความชื้นอากาศ
+  float t = dht.readTemperature();                            // อ่านอุณหภูมิ
+  int soilRaw = analogRead(SOIL_PIN);                         // อ่าน Soil ADC
+  int span = SOIL_DRY_ADC - SOIL_WET_ADC; if (span <= 0) span = 1; // กันหาร 0
+  int soilPct = (int)(((float)(SOIL_DRY_ADC - soilRaw) * 100.0f) / span); // map → %
+  soilPct = constrain(soilPct, 0, 100);                       // จำกัดช่วง
+
+  if (!isnan(t)) Blynk.virtualWrite(V1, t);                   // ส่งอุณหภูมิไป V1 (ถ้าอ่านได้)
+  if (!isnan(h)) Blynk.virtualWrite(V2, h);                   // ส่งความชื้นไป V2 (ถ้าอ่านได้)
+  Blynk.virtualWrite(V3, soilPct);                            // ส่ง Soil% ไป V3
+}
+
+void taskReconnect() {
+  if (WiFi.status() != WL_CONNECTED) {                        // ถ้า Wi-Fi หลุด
+    Serial.println("Wi-Fi disconnected → reconnecting...");   // แจ้งเตือน
+    WiFi.begin(ssid, pass);                                   // ขอเชื่อมใหม่ (ไม่บล็อกงานอื่น เพราะอยู่ใน timer)
+    lcd.setCursor(0, 1); lcd.print("WiFi: reconnect  ");      // แจ้งสถานะบน LCD
+    digitalWrite(STATUS_LED, LOW);                            // ดับไฟสถานะ Blynk
+  }
+  if (WiFi.status() == WL_CONNECTED && !Blynk.connected()) {  // ถ้า Wi-Fi ติด แต่ Blynk ยังไม่ติด
+    Serial.println("Blynk reconnecting...");                  // แจ้งเตือน
+    Blynk.connect(3000);                                      // พยายามเชื่อม Blynk โดย timeout 3s (ไม่ค้างนาน)
+    if (!Blynk.connected()) {                                 // ถ้ายังไม่ติด
+      lcd.setCursor(0, 1); lcd.print("Blynk: offline ");      // แสดงออฟไลน์
+      digitalWrite(STATUS_LED, LOW);                          // ดับไฟสถานะ
     }
-    lastReconnectAttempt = now;
   }
 }
 
-//Function สำหรับส่งการแจ้งเตือนผ่าน Telegram
-void sendTelegramMessage(String message) {
-    HTTPClient http;
-    String url = "https://api.telegram.org/bot" + String(botToken) + "/sendMessage?chat_id=" + String(chatID) + "&text=" + message;
-
-    http.begin(url);
-    int httpResponseCode = http.GET();
-
-    Serial.print("📡 HTTP Response Code: ");
-    Serial.println(httpResponseCode);
-
-    if (httpResponseCode > 0) {
-        Serial.println("✅ ส่งข้อความไปยัง Telegram สำเร็จ!");
-        String response = http.getString();
-        Serial.println("📨 Telegram Response: " + response);
-    } else {
-        Serial.print("❌ ส่งข้อความไปยัง Telegram ล้มเหลว: ");
-        Serial.println(httpResponseCode);
-    }
-    http.end();
+/******************** Helper: show Wi-Fi/Blynk status (suffix on line 2) ********************/
+void showNetStatus() {
+  lcd.setCursor(11, 1);                                       // พิมพ์ส่วนท้ายของบรรทัดล่าง (คอลัมน์ 11–15)
+  if (WiFi.status() == WL_CONNECTED) {                        // ถ้า Wi-Fi ติด
+    if (Blynk.connected()) lcd.print("Onln");                 // ติดทั้งคู่ → แสดง Onln (Online)
+    else                   lcd.print("WiFi");                 // มี Wi-Fi แต่ Blynk หลุด → WiFi
+  } else {
+    lcd.print("Off ");                                        // ไม่มี Wi-Fi → Off
+  }
 }
 
-// Function Loop Blynk และ Timer
+/******************** Main Loop ********************/
 void loop() {
-  Blynk.run();
-  timer.run();
+  if (Blynk.connected()) {                                    // ถ้าเชื่อม Blynk ได้
+    Blynk.run();                                              // ประมวลผลภายใน Blynk (คอลแบ็ก, sync)
+  }
+  timer.run();                                                // รันตารางงานตามเวลา (อ่าน/ส่งค่า/รีคอนเน็กต์)
+}
+
+/******************** Helper: Telegram Sender (เพิ่ม) ********************/
+bool sendTelegramMessage(const String& text) {                 // ส่งข้อความไป Telegram; คืน true ถ้าสำเร็จ
+  if (WiFi.status() != WL_CONNECTED) {                         // ถ้า Wi-Fi ยังไม่เชื่อม
+    Serial.println("Skip Telegram: no WiFi");                 // ข้ามการส่ง (หลีกเลี่ยงค้าง)
+    return false;                                             // ส่งไม่สำเร็จ
+  }
+  HTTPClient http;                                            // สร้างออบเจกต์ HTTP
+  String url = String("https://api.telegram.org/bot") + TELEGRAM_BOT_TOKEN + "/sendMessage"; // Endpoint ของ Telegram Bot
+  String body = String("{\"chat_id\":\"") + TELEGRAM_CHAT_ID + "\",\"text\":\"" + text + "\"}"; // สร้าง payload แบบ JSON
+  http.begin(url);                                            // เริ่มเชื่อมกับปลายทาง
+  http.addHeader("Content-Type", "application/json");         // ตั้ง header เป็น JSON
+  int code = http.POST(body);                                 // ส่ง POST พร้อม body
+  Serial.print("Telegram HTTP code: "); Serial.println(code); // แสดงรหัสตอบกลับ HTTP
+  http.end();                                                 // ปิดการเชื่อมต่อ HTTP
+  return (code >= 200 && code < 300);                         // สำเร็จเมื่อรหัส 2xx
 }
