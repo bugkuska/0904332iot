@@ -1,104 +1,91 @@
-#define BLYNK_PRINT Serial
-#include <WiFi.h>
-#include <WiFiClient.h>
-#include <BlynkSimpleEsp32.h>  //Blynk Library ต้องเป็น Version 0.6.x เท่านั้น ห้ามใช้ Version 1.x.x
+#define BLYNK_PRINT Serial                 // ให้ Blynk ส่งข้อความ Debug ผ่าน Serial Monitor
+#include <WiFi.h>                          // ไลบรารีสำหรับการเชื่อมต่อ Wi-Fi (ESP32)
+#include <WiFiClient.h>                    // ไลบรารีสำหรับการสร้าง client เชื่อมต่อ TCP/IP
+#include <BlynkSimpleEsp32.h>               // ไลบรารี Blynk สำหรับ ESP32 (ต้องใช้เวอร์ชัน 0.6.x เท่านั้น)
 
-// Wi-Fi and Blynk credentials
-const char ssid[] = "Your_SSID";        // Your Wi-Fi SSID
-const char pass[] = "Your_PASSWORD";   // Your Wi-Fi password
-const char auth[] = "Your_AUTH_TOKEN"; // Auth token from Blynk app
+// ข้อมูล Wi-Fi และ Blynk
+const char ssid[] = "Your_SSID";           // กำหนดชื่อ Wi-Fi ที่จะเชื่อมต่อ
+const char pass[] = "Your_PASSWORD";       // กำหนดรหัสผ่าน Wi-Fi
+const char auth[] = "Your_AUTH_TOKEN";     // Token จากแอป Blynk (ระบุใน Blynk Project)
 
-// GPIO configuration
-#define LED_PIN 2
+// กำหนดขา GPIO สำหรับ LED
+#define LED_PIN 2                           // ขา GPIO2 ใช้ควบคุม LED
 
-// Flag to fetch initial Blynk state
+// ตัวแปร flag ใช้เพื่อสั่งดึงค่าจาก Blynk ครั้งแรกเมื่อเชื่อมต่อ
 bool fetchBlynkState = true;
 
-// Timer for periodic tasks
+// ตัวตั้งเวลาใน Blynk สำหรับทำงานตามรอบเวลา
 BlynkTimer timer;
 
-// Function prototypes
-void checkConnections();
+// ประกาศฟังก์ชันล่วงหน้า
+void checkConnections();                    // ฟังก์ชันตรวจสอบการเชื่อมต่อ Wi-Fi และ Blynk
 
 void setup() {
-  // Initialize serial communication
-  Serial.begin(9600);
+  Serial.begin(9600);                       // เริ่ม Serial Monitor ที่ความเร็ว 9600 bps
 
-  // Configure LED pin
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
+  pinMode(LED_PIN, OUTPUT);                  // ตั้งค่า LED_PIN เป็น Output
+  digitalWrite(LED_PIN, LOW);                // ปิด LED เริ่มต้น
 
-  // Connect to Wi-Fi
-  Serial.print("Connecting to Wi-Fi: ");
-  Serial.println(ssid);
-  WiFi.begin(ssid, pass);
+  Serial.print("Connecting to Wi-Fi: ");     // แสดงข้อความกำลังเชื่อมต่อ Wi-Fi
+  Serial.println(ssid);                      // แสดงชื่อ Wi-Fi
+  WiFi.begin(ssid, pass);                     // เริ่มเชื่อมต่อ Wi-Fi
 
-  // Wait for Wi-Fi connection
-  while (WiFi.status() != WL_CONNECTED) {
+  while (WiFi.status() != WL_CONNECTED) {    // รอจนกว่าจะเชื่อมต่อสำเร็จ
     delay(500);
     Serial.print(".");
   }
-  Serial.println("\nWiFi connected");
-  Serial.print("IP Address: ");
+  Serial.println("\nWiFi connected");         // แจ้งว่าเชื่อมต่อสำเร็จ
+  Serial.print("IP Address: ");               // แสดง IP ที่ได้รับจาก Router
   Serial.println(WiFi.localIP());
 
-  // Enable auto-reconnect for Wi-Fi
-  WiFi.setAutoReconnect(true);
-  WiFi.persistent(true);
+  WiFi.setAutoReconnect(true);                // ตั้งค่าให้เชื่อมต่อ Wi-Fi ใหม่อัตโนมัติเมื่อหลุด
+  WiFi.persistent(true);                      // บันทึกค่า Wi-Fi ลงหน่วยความจำถาวร
 
-  // Connect to Blynk server
-  Serial.println("Connecting to Blynk server...");
-  Blynk.begin(auth, ssid, pass, "ip-address-blynk-localserver", 8080);
+  Serial.println("Connecting to Blynk server...");  
+  Blynk.begin(auth, ssid, pass, "ip-address-blynk-localserver", 8080); // เชื่อมต่อ Blynk Server (Local Server)
 
-  // Set up a periodic check for Wi-Fi and Blynk connection
-  timer.setInterval(5000L, checkConnections); // Check every 5 seconds
+  timer.setInterval(5000L, checkConnections); // สั่งให้ตรวจสอบการเชื่อมต่อทุก 5 วินาที
 }
 
-// Callback when Blynk is connected
+// ฟังก์ชัน callback เมื่อเชื่อมต่อ Blynk สำเร็จ
 BLYNK_CONNECTED() {
   Serial.println("Blynk connected!");
   
-  // Fetch latest state from Blynk server
-  if (fetchBlynkState) {
-    digitalWrite(LED_PIN, HIGH); // Turn LED on
-    Blynk.syncAll();            // Synchronize all Blynk states
+  if (fetchBlynkState) {                     // ถ้าเป็นการเชื่อมต่อครั้งแรก
+    digitalWrite(LED_PIN, HIGH);              // เปิด LED
+    Blynk.syncAll();                          // ดึงค่าล่าสุดของทุก Virtual Pin จาก Server
   }
 }
 
-// Callback to control LED from Blynk app
+// ฟังก์ชัน callback เมื่อมีข้อมูลจาก Blynk มาที่ Virtual Pin V0
 BLYNK_WRITE(V0) {
-  int ledState = param.asInt(); // Get value from Blynk app (0 or 1)
-  digitalWrite(LED_PIN, ledState); // Set LED state
-  Serial.print("LED state set to: ");
-  Serial.println(ledState ? "ON" : "OFF");
+  int ledState = param.asInt();               // อ่านค่าที่ส่งมาจากแอป (0 หรือ 1)
+  digitalWrite(LED_PIN, ledState);            // สั่งเปิด/ปิด LED ตามค่าที่รับมา
+  Serial.print("LED state set to: ");         
+  Serial.println(ledState ? "ON" : "OFF");    // แสดงข้อความสถานะ LED
 }
 
-// Function to check Wi-Fi and Blynk connection
+// ฟังก์ชันตรวจสอบการเชื่อมต่อ Wi-Fi และ Blynk
 void checkConnections() {
-  // Check Wi-Fi status
-  if (WiFi.status() != WL_CONNECTED) {
+  if (WiFi.status() != WL_CONNECTED) {        // ถ้า Wi-Fi หลุด
     Serial.println("Wi-Fi disconnected! Reconnecting...");
-    WiFi.begin(ssid, pass);
+    WiFi.begin(ssid, pass);                   // พยายามเชื่อมต่อใหม่
     while (WiFi.status() != WL_CONNECTED) {
       delay(500);
       Serial.print(".");
     }
-    Serial.println("\nWi-Fi reconnected");
+    Serial.println("\nWi-Fi reconnected");    // แจ้งว่าเชื่อมต่อ Wi-Fi กลับมาแล้ว
   }
 
-  // Check Blynk connection
-  if (!Blynk.connected()) {
+  if (!Blynk.connected()) {                   // ถ้า Blynk หลุด
     Serial.println("Blynk disconnected! Reconnecting...");
-    Blynk.connect();
+    Blynk.connect();                          // พยายามเชื่อมต่อ Blynk ใหม่
   }
 }
 
 void loop() {
-  // Run Blynk processes
-  if (Blynk.connected()) {
-    Blynk.run();
+  if (Blynk.connected()) {                    // ถ้าเชื่อมต่อ Blynk อยู่
+    Blynk.run();                              // ให้ Blynk ทำงาน
   }
-  
-  // Run timer tasks
-  timer.run();
+  timer.run();                                // ให้ Timer ทำงานตามรอบเวลา
 }
