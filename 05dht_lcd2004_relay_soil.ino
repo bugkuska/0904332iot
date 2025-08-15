@@ -1,6 +1,6 @@
 #include <Wire.h>                     // นำเข้าไลบรารี Wire สำหรับสื่อสารแบบ I2C (ESP32 มีฮาร์ดแวร์ I2C ในตัว)
 #include <LiquidCrystal_I2C.h>        // นำเข้าไลบรารีควบคุมจอ LCD ผ่าน I2C เพื่อลดจำนวนสายสัญญาณเหลือ SDA/SCL
-//https://github.com/bugkuska/esp32/raw/main/basic/lcd/LiquidCrystal_i2c.zip
+//Download ได้จาก https://drive.google.com/file/d/1hkmODw9q8CdxQx99Bp1Eu2foACQ-C4Sx/view?usp=sharing
 LiquidCrystal_I2C lcd(0x27, 20, 4);   // สร้างออบเจกต์ LCD ที่แอดเดรส I2C = 0x27 ขนาด 20 คอลัมน์ 4 แถว
                                       // หมายเหตุ: แอดเดรสอาจต่างกัน (0x3F/0x27) แล้วแต่โมดูล I2C backpack; ถ้าไม่ขึ้น ลองสแกน I2C ก่อน
 // ---------- Pins ----------
