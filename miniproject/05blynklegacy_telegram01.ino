@@ -1,15 +1,15 @@
 /******************** Includes ********************/
-#define BLYNK_PRINT Serial  // ให้ Blynk พิมพ์ข้อความดีบักออก Serial Monitor
-#define BLYNK_HEARTBEAT 30
-#define BLYNK_TIMEOUT_MS 20000
-
+#define BLYNK_PRINT Serial      // ให้ Blynk พิมพ์ข้อความดีบักออก Serial Monitor
 #include <Wire.h>               // ไลบรารี I2C (ใช้กับ LCD)
 #include <LiquidCrystal_I2C.h>  // ไลบรารีควบคุม LCD1602 ผ่าน I2C
 #include <DHT.h>                // ไลบรารีเซ็นเซอร์ DHT (Adafruit)
 #include <WiFi.h>               // ไลบรารี Wi-Fi สำหรับ ESP32
 #include <WiFiClient.h>         // ไลบรารี TCP client
 #include <BlynkSimpleEsp32.h>   // ไลบรารี Blynk 0.6.x สำหรับ ESP32
-#include <HTTPClient.h>         // ← เพิ่ม: ใช้ส่ง HTTP ไปยัง Telegram Bot API
+
+//New
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 
 /******************** LCD ********************/
 LiquidCrystal_I2C lcd(0x27, 16, 2);  // LCD I2C address 0x27 ขนาด 16x2 (บางบอร์ดอาจเป็น 0x3F)
@@ -20,7 +20,7 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);  // LCD I2C address 0x27 ขนาด 16x2 (
 #define RELAY2_PIN 5   // รีเลย์ช่อง 2
 #define RELAY3_PIN 18  // รีเลย์ช่อง 3
 #define RELAY4_PIN 19  // รีเลย์ช่อง 4
-#define DHTPIN 15      // ขา DATA ของ DHT
+#define DHTPIN 16      // ขา DATA ของ DHT
 #define DHTTYPE DHT11  // ประเภท DHT: DHT11 (เปลี่ยนเป็น DHT22 ได้)
 #define STATUS_LED 2   // GPIO2: เปิดเมื่อเชื่อม Blynk สำเร็จ (ไฟสถานะ)
 
@@ -30,6 +30,29 @@ DHT dht(DHTPIN, DHTTYPE);  // ออบเจกต์ DHT สำหรับอ
 /******************** Soil Calibration ********************/
 const int SOIL_DRY_ADC = 3000;  // ค่า ADC เมื่อดิน “แห้งมาก” (คาลิเบรตจากของจริง)
 const int SOIL_WET_ADC = 1200;  // ค่า ADC เมื่อดิน “เปียกมาก” (คาลิเบรตจากของจริง)
+
+//new
+/******************** Blynk Virtual Pins ********************/
+#define VPIN_MODE_SWITCH V20          // ปุ่มเลือกโหมด Auto/Manual
+#define VPIN_SOIL_SETPOINT V21        // Slider ตั้งค่า Soil Setpoint
+/******** Relay1 state (ต้องอยู่ก่อน setup และ BLYNK_WRITE) ********/
+volatile bool g_relay1State = false;   // false=ปิด, true=เปิด
+/******** โปรโตไทป์ของฟังก์ชันควบคุม Relay1 ********/
+void setRelay1(bool on, bool reflectToApp = true);
+
+
+/******************** Telegram ********************/
+const char* TG_BOT_TOKEN = "";  // <- ใส่ของคุณ
+const char* TG_CHAT_ID = "";                                        // <- ใส่ของคุณ
+
+//New
+volatile bool g_autoMode = false;  // โหมด Auto/Manual
+volatile int g_soilSetpoint = 50;  // ค่าเริ่มต้น Soil Setpoint = 50%
+
+unsigned long lastBelowMsgMs = 0;                       // สำหรับจำเวลาส่งข้อความเมื่อ Soil < Setpoint
+bool sentAboveOnce = false;                             // สำหรับจำว่าขึ้นมามากกว่าแล้วส่งไปแล้วหรือยัง
+const unsigned long BELOW_INTERVAL_MS = 60UL * 1000UL;  // 1 นาที
+
 
 /******************** Blynk Credentials ********************/
 const char ssid[] = "";                          // ชื่อ Wi-Fi (ใส่ของคุณ)
@@ -50,37 +73,14 @@ void taskSendToBlynk();     // ส่งค่าขึ้น Blynk เมื่
 void taskReconnect();       // พยายามเชื่อมต่อ Wi-Fi/Blynk เป็นระยะ
 void showNetStatus();       // แสดงสถานะเครือข่ายบน LCD แถวล่าง
 
-/************* Telegram Settings (เพิ่ม) *************/
-const char TELEGRAM_BOT_TOKEN[] = "";  // ← ใส่ Token ของบอท Telegram
-const char TELEGRAM_CHAT_ID[] = "";                                        // ← ใส่ Chat ID หรือ Group ID ที่จะส่งข้อความ
-float tempThreshold = 30.0;                                                          // ← เกณฑ์แจ้งเตือน: อุณหภูมิสูงกว่า (°C)
-float humidityThreshold = 40.0;                                                      // ← เกณฑ์แจ้งเตือน: ความชื้นต่ำกว่า (%RH)
-float soilThreshold = 30.0;                                                          // ← เกณฑ์แจ้งเตือน: ความชื้นดิน "ต่ำกว่า" ค่านี้จะถือว่าแห้ง (%)
-
-// ===== One-shot alert control (Latch) + Hysteresis =====
-bool tempAlertActive = false;  // true = อยู่ในสถานะผิดปกติของอุณหภูมิ (ส่งเตือนไปแล้ว)
-bool humiAlertActive = false;  // true = อยู่ในสถานะผิดปกติของความชื้นอากาศ (ส่งเตือนไปแล้ว)
-bool soilAlertActive = false;  // true = อยู่ในสถานะผิดปกติของความชื้นดิน (ส่งเตือนไปแล้ว)
-
-const float TEMP_HYST = 0.5f;  // ฮิสเทอรีซิสอุณหภูมิ 0.5°C เพื่อกันแกว่ง
-const float HUMI_HYST = 2.0f;  // ฮิสเทอรีซิสความชื้นอากาศ 2%RH
-const float SOIL_HYST = 2.0f;  // ฮิสเทอรีซิสความชื้นดิน 2%
-
-const bool SEND_RECOVERY = false;  // true = ส่งข้อความ “กลับสู่ปกติ”; false = ไม่ส่ง
-
-
-const unsigned long ALERT_COOLDOWN_MS = 60000UL;  // ← กันสแปม: ส่งเตือนซ้ำขั้นต่ำทุก 60 วินาที/เงื่อนไข
-unsigned long lastTempAlertMs = 0;                // ← เวลาเตือนอุณหภูมิล่าสุด (ms)
-unsigned long lastHumiAlertMs = 0;                // ← เวลาเตือนความชื้นล่าสุด (ms)
-unsigned long lastSoilAlertMs = 0;                // เวลาเตือน Soil ล่าสุด (ใช้ร่วมกับ ALERT_COOLDOWN_MS)
-
 /******************** Setup ********************/
 void setup() {
   Serial.begin(9600);  // เปิด Serial Monitor ที่ 9600 bps
   dht.begin();         // เริ่มเซ็นเซอร์ DHT
 
-  pinMode(SOIL_PIN, INPUT);       // ตั้งขา Soil เป็นอินพุต
-  pinMode(RELAY1_PIN, OUTPUT);    // ตั้งรีเลย์ 1 เป็นเอาต์พุต
+  pinMode(SOIL_PIN, INPUT);     // ตั้งขา Soil เป็นอินพุต
+  pinMode(RELAY1_PIN, OUTPUT);  // ตั้งรีเลย์ 1 เป็นเอาต์พุต
+
   pinMode(RELAY2_PIN, OUTPUT);    // ตั้งรีเลย์ 2 เป็นเอาต์พุต
   pinMode(RELAY3_PIN, OUTPUT);    // ตั้งรีเลย์ 3 เป็นเอาต์พุต
   pinMode(RELAY4_PIN, OUTPUT);    // ตั้งรีเลย์ 4 เป็นเอาต์พุต
@@ -88,6 +88,8 @@ void setup() {
   digitalWrite(RELAY2_PIN, LOW);  // ปิดรีเลย์ 2 ตอนเริ่ม
   digitalWrite(RELAY3_PIN, LOW);  // ปิดรีเลย์ 3 ตอนเริ่ม
   digitalWrite(RELAY4_PIN, LOW);  // ปิดรีเลย์ 4 ตอนเริ่ม
+
+  setRelay1(false, false);        // ปิด Relay1 ตอนเริ่ม (ยังไม่ sync ไปแอป)
 
   pinMode(STATUS_LED, OUTPUT);    // ตั้ง GPIO2 เป็นเอาต์พุต
   digitalWrite(STATUS_LED, LOW);  // ดับไฟสถานะไว้ก่อน (ยังไม่ออนไลน์ Blynk)
@@ -100,9 +102,7 @@ void setup() {
   lcd.setCursor(0, 1);            // ไปแถว 2 คอลัมน์ 0
   lcd.print("WiFi: connecting");  // แจ้งกำลังเชื่อม Wi-Fi
 
-  WiFi.begin(ssid, pass);  // เริ่มเชื่อมต่อ Wi-Fi (ไม่บล็อกงานหลัก)
-  WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false);
+  WiFi.begin(ssid, pass);       // เริ่มเชื่อมต่อ Wi-Fi (ไม่บล็อกงานหลัก)
   WiFi.setAutoReconnect(true);  // ให้ต่อ Wi-Fi ใหม่อัตโนมัติเมื่อหลุด
   WiFi.persistent(true);        // บันทึก config เครือข่ายไว้ถาวร
 
@@ -112,24 +112,71 @@ void setup() {
   timer.setInterval(DHT_INTERVAL_MS, taskReadAndDisplay);  // อ่าน/แสดงผลเซ็นเซอร์ทุก 2 วินาที (ทำเสมอ)
   timer.setInterval(DHT_INTERVAL_MS, taskSendToBlynk);     // ส่งค่าไป Blynk ทุก 2 วินาที (เฉพาะเมื่อเชื่อมต่อ)
   timer.setInterval(RECONN_INTERVAL_MS, taskReconnect);    // พยายามเชื่อมต่อ Wi-Fi/Blynk ทุก 5 วินาที
+
+  //new
+  timer.setInterval(2000, autoControlTask);  // ตรวจค่า Soil% ทุก 2 วินาที
 }
 
 /******************** Blynk Connected Callback ********************/
 BLYNK_CONNECTED() {
-  Serial.println("Blynk connected!");  // แจ้งสถานะต่อ Blynk สำเร็จ
-  Blynk.syncAll();                     // ซิงค์สถานะ Virtual Pins ทั้งหมด
-  digitalWrite(STATUS_LED, HIGH);      // เปิด GPIO2 เป็นไฟสถานะ
-  lcd.setCursor(0, 1);                 // ไปแถวล่าง
-  lcd.print("Blynk: online   ");       // แสดงสถานะออนไลน์ (เติมช่องว่างลบเศษอักษร)
+  Serial.println("Blynk connected!");
+  Blynk.syncAll();
+  digitalWrite(STATUS_LED, HIGH);
+  lcd.setCursor(0, 1); lcd.print("Blynk: online   ");
+
+  // สะท้อนสถานะจริงของ Relay1 ไปที่ปุ่ม V10
+  Blynk.virtualWrite(V10, g_relay1State ? 1 : 0);
 }
 
-/******************** Relay Controls via Blynk (V10–V13) ********************/
-BLYNK_WRITE(V10) {               // ควบคุมรีเลย์ 1 ที่ V10
-  int st = param.asInt();        // รับค่า 0/1
-  digitalWrite(RELAY1_PIN, st);  // เขียนสถานะถึงรีเลย์ 1 (ถ้า Active-LOW ให้ใช้ !st)
-  Serial.print("Relay 1 → ");
-  Serial.println(st ? "ON" : "OFF");  // ดีบักสถานะ
+
+//new
+BLYNK_WRITE(VPIN_MODE_SWITCH) {
+  g_autoMode = (param.asInt() == 1);
+  sentAboveOnce = false;
+  lastBelowMsgMs = 0;
+
+  if (!g_autoMode) {
+    // เข้า Manual → ปิด Relay1 ทันที และ sync ปุ่ม OFF
+    setRelay1(false);  // reflectToApp=true (ค่าเริ่มต้น)
+    Serial.println("Mode -> MANUAL, Relay1 forced OFF");
+  } else {
+    Serial.println("Mode -> AUTO");
+  }
 }
+
+
+BLYNK_WRITE(VPIN_SOIL_SETPOINT) {
+  g_soilSetpoint = constrain(param.asInt(), 0, 100);
+  Serial.printf("Soil Setpoint -> %d%%\n", g_soilSetpoint);
+}
+
+
+/******************** Relay Controls via Blynk (V10–V13) ********************/
+//new
+BLYNK_WRITE(V10) {
+  int st = param.asInt();
+  if (g_autoMode) {
+    Serial.println("Relay 1 command ignored (AUTO mode)");
+    // สะท้อนสถานะจริงกลับไปปุ่ม เพื่อไม่ให้ปุ่มค้างสถานะผิด
+    Blynk.virtualWrite(V10, g_relay1State ? 1 : 0);
+    return;
+  }
+  setRelay1(st ? true : false);  // Active-High + sync ปุ่ม
+  Serial.print("Relay 1 → "); Serial.println(st ? "ON" : "OFF");
+}
+
+//new
+/******** ฟังก์ชันควบคุม Relay1 + sync ปุ่ม V10 ********/
+void setRelay1(bool on, bool reflectToApp) {
+  digitalWrite(RELAY1_PIN, on ? HIGH : LOW);   // Active-High
+  g_relay1State = on;
+
+  if (reflectToApp && Blynk.connected()) {
+    Blynk.virtualWrite(V10, on ? 1 : 0);       // ให้ปุ่มบนแอป “ตามจริง”
+  }
+}
+
+
 
 BLYNK_WRITE(V11) {               // ควบคุมรีเลย์ 2 ที่ V11
   int st = param.asInt();        // รับค่า 0/1
@@ -150,38 +197,6 @@ BLYNK_WRITE(V13) {               // ควบคุมรีเลย์ 4 ท�
   digitalWrite(RELAY4_PIN, st);  // เขียนสถานะถึงรีเลย์ 4
   Serial.print("Relay 4 → ");
   Serial.println(st ? "ON" : "OFF");  // ดีบักสถานะ
-}
-
-// ******************** Threshold Controls via Blynk (Slider V30, V31) ********************
-BLYNK_WRITE(V30) {                              // คอลแบ็กรับค่าจาก Slider ที่ Virtual Pin V30 (เกณฑ์อุณหภูมิ)
-  float v = param.asFloat();                    // แปลงค่าที่ได้จากแอปเป็น float
-  if (!isnan(v)) {                              // ป้องกันกรณีอ่านค่าไม่ได้ (NaN)
-    tempThreshold = constrain(v, 0.0f, 80.0f);  // จำกัดช่วง 0–80°C เพื่อความสมเหตุสมผล
-    Serial.print("Set Temp Threshold: ");       // พิมพ์ค่าใหม่ลง Serial เพื่อตรวจสอบ
-    Serial.print(tempThreshold);
-    Serial.println(" °C");
-  }
-}
-
-BLYNK_WRITE(V31) {                                   // คอลแบ็กรับค่าจาก Slider ที่ Virtual Pin V31 (เกณฑ์ความชื้น)
-  float v = param.asFloat();                         // แปลงค่าที่ได้จากแอปเป็น float
-  if (!isnan(v)) {                                   // ป้องกันกรณีอ่านค่าไม่ได้ (NaN)
-    humidityThreshold = constrain(v, 0.0f, 100.0f);  // จำกัดช่วง 0–100%RH
-    Serial.print("Set Humi Threshold: ");            // พิมพ์ค่าใหม่ลง Serial เพื่อตรวจสอบ
-    Serial.print(humidityThreshold);
-    Serial.println(" %");
-  }
-}
-
-// ******************** Threshold Controls via Blynk (Slider V32: Soil %) ********************
-BLYNK_WRITE(V32) {                               // คอลแบ็กรับค่าจาก Slider ที่ Virtual Pin V32 (เกณฑ์ความชื้นดิน)
-  float v = param.asFloat();                     // แปลงค่าที่ได้จากแอปเป็น float
-  if (!isnan(v)) {                               // ป้องกัน NaN (อ่านค่าไม่ได้)
-    soilThreshold = constrain(v, 0.0f, 100.0f);  // จำกัดช่วง 0–100% ให้สมเหตุสมผล
-    Serial.print("Set Soil Threshold: ");        // แสดงค่าใหม่ใน Serial เพื่อตรวจสอบ
-    Serial.print(soilThreshold);
-    Serial.println(" %");
-  }
 }
 
 /******************** Periodic Tasks ********************/
@@ -221,55 +236,7 @@ void taskReadAndDisplay() {
   lcd.print("%    ");   // เติมช่องว่างเพื่อเคลียร์เศษตัวอักษรค้าง
 
   showNetStatus();  // อัปเดตสถานะเครือข่าย (เติมท้ายบรรทัดล่างให้พอดี)
-
-  /***** ALERT (one-shot per incident with latch + hysteresis) *****/
-
-  // --- Temperature High ---
-  if (!isnan(t)) {                                                                                                // ตรวจว่าค่าอุณหภูมิอ่านได้
-    if (!tempAlertActive && (t > tempThreshold)) {                                                                // ยังไม่อยู่ในเหตุการณ์ + ข้ามเกณฑ์ขึ้นด้านบน
-      String msg = "🔥 Temp High: " + String(t, 1) + "°C (>" + String(tempThreshold, 1) + "°C)";                   // ข้อความเตือน
-      sendTelegramMessage(msg);                                                                                   // ส่ง Telegram ทันที (ครั้งเดียว)
-      tempAlertActive = true;                                                                                     // ล็อกสถานะว่าได้เตือนแล้ว
-    } else if (tempAlertActive && (t <= (tempThreshold - TEMP_HYST))) {                                           // ลงต่ำกว่า “เกณฑ์ - ฮิสเทอรีซิส” = กลับสู่ปกติ
-      if (SEND_RECOVERY) {                                                                                        // ถ้าตั้งให้ส่งข้อความ “กลับสู่ปกติ”
-        String ok = "✅ Temp Normal: " + String(t, 1) + "°C (<= " + String(tempThreshold - TEMP_HYST, 1) + "°C)";  // ข้อความปกติ
-        sendTelegramMessage(ok);                                                                                  // ส่ง Telegram แจ้งกลับปกติ
-      }
-      tempAlertActive = false;  // ปลดล็อก เพื่อพร้อมเตือนเหตุการณ์ครั้งถัดไป
-    }
-  }
-
-  // --- Humidity Low ---
-  if (!isnan(h)) {                                                                                    // ตรวจว่าค่าความชื้นอ่านได้
-    if (!humiAlertActive && (h < humidityThreshold)) {                                                // ยังไม่อยู่ในเหตุการณ์ + ตกต่ำกว่าเกณฑ์
-      String msg = "💧 Humidity Low: " + String(h, 0) + "% (<" + String(humidityThreshold, 0) + "%)";  // ข้อความเตือน
-      sendTelegramMessage(msg);                                                                       // ส่ง Telegram ครั้งเดียว
-      humiAlertActive = true;                                                                         // ล็อกสถานะเหตุการณ์
-    } else if (humiAlertActive && (h >= (humidityThreshold + HUMI_HYST))) {                           // ฟื้นตัวสูงกว่า “เกณฑ์ + ฮิสเทอรีซิส”
-      if (SEND_RECOVERY) {                                                                            // ต้องการแจ้งกลับปกติหรือไม่
-        String ok = "✅ Humidity Normal: " + String(h, 0) + "% (>= " + String(humidityThreshold + HUMI_HYST, 0) + "%)";
-        sendTelegramMessage(ok);  // ส่ง Telegram แจ้งกลับปกติ
-      }
-      humiAlertActive = false;  // ปลดล็อกเหตุการณ์
-    }
-  }
-
-  // --- Soil Moisture Low ---
-  if (!isnan((float)soilPct)) {                                                                // ป้องกันเผื่อใส่ NaN เชิงสัญลักษณ์ (soilPct เป็น int ปกติอ่านได้)
-    if (!soilAlertActive && (soilPct < soilThreshold)) {                                       // ยังไม่อยู่ในเหตุการณ์ + ดินต่ำกว่าเกณฑ์
-      String msg = "🌱 Soil Low: " + String(soilPct) + "% (< " + String(soilThreshold) + "%)";  // ข้อความเตือน
-      sendTelegramMessage(msg);                                                                // ส่ง Telegram ครั้งเดียว
-      soilAlertActive = true;                                                                  // ล็อกสถานะเหตุการณ์
-    } else if (soilAlertActive && (soilPct >= (soilThreshold + SOIL_HYST))) {                  // ฟื้นตัวสูงกว่า “เกณฑ์ + ฮิสเทอรีซิส”
-      if (SEND_RECOVERY) {                                                                     // ต้องการแจ้งกลับปกติหรือไม่
-        String ok = "✅ Soil Normal: " + String(soilPct) + "% (>= " + String(soilThreshold + SOIL_HYST) + "%)";
-        sendTelegramMessage(ok);  // ส่ง Telegram แจ้งกลับปกติ
-      }
-      soilAlertActive = false;  // ปลดล็อกเหตุการณ์
-    }
-  }
 }
-
 
 void taskSendToBlynk() {
   if (!Blynk.connected()) return;      // ถ้ายังไม่เชื่อม Blynk ให้ข้าม (ทำงานออฟไลน์ต่อ)
@@ -296,7 +263,7 @@ void taskReconnect() {
   }
   if (WiFi.status() == WL_CONNECTED && !Blynk.connected()) {  // ถ้า Wi-Fi ติด แต่ Blynk ยังไม่ติด
     Serial.println("Blynk reconnecting...");                  // แจ้งเตือน
-    Blynk.connect(10000);                                      // พยายามเชื่อม Blynk โดย timeout 3s (ไม่ค้างนาน)
+    Blynk.connect(3000);                                      // พยายามเชื่อม Blynk โดย timeout 3s (ไม่ค้างนาน)
     if (!Blynk.connected()) {                                 // ถ้ายังไม่ติด
       lcd.setCursor(0, 1);
       lcd.print("Blynk: offline ");   // แสดงออฟไลน์
@@ -316,29 +283,87 @@ void showNetStatus() {
   }
 }
 
-/******************** Main Loop ********************/
-void loop() {
-  Blynk.run();
-  timer.run();
+
+//New
+bool telegramSend(const String& text) {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  WiFiClientSecure client;
+  client.setInsecure();
+
+  HTTPClient https;
+  String url = "https://api.telegram.org/bot" + String(TG_BOT_TOKEN) + "/sendMessage";
+  String payload = "chat_id=" + String(TG_CHAT_ID) + "&text=" + urlencode(text);
+
+  https.begin(client, url);
+  https.addHeader("Content-Type", "application/x-www-form-urlencoded");
+  int code = https.POST(payload);
+  bool ok = (code > 0 && code < 400);
+  https.end();
+  return ok;
 }
 
-/******************** Helper: Telegram Sender (เพิ่ม) ********************/
-bool sendTelegramMessage(const String& text) {  // ส่งข้อความไป Telegram; คืน true ถ้าสำเร็จ
-
-  if (WiFi.status() != WL_CONNECTED) {         // ถ้า Wi-Fi ยังไม่เชื่อม
-    Serial.println("Skip Telegram: no WiFi");  // ข้ามการส่ง (หลีกเลี่ยงค้าง)
-    return false;                              // ส่งไม่สำเร็จ
+String urlencode(const String& s) {
+  String out;
+  char c;
+  char bufHex[4];
+  for (size_t i = 0; i < s.length(); i++) {
+    c = s.charAt(i);
+    if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+      out += c;
+    } else if (c == ' ') {
+      out += '+';
+    } else {
+      snprintf(bufHex, sizeof(bufHex), "%%%02X", (unsigned char)c);
+      out += bufHex;
+    }
   }
-  HTTPClient http;                                                                               // สร้างออบเจกต์ HTTP
-  String url = String("https://api.telegram.org/bot") + TELEGRAM_BOT_TOKEN + "/sendMessage";     // Endpoint ของ Telegram Bot
-  String body = String("{\"chat_id\":\"") + TELEGRAM_CHAT_ID + "\",\"text\":\"" + text + "\"}";  // สร้าง payload แบบ JSON
-  http.begin(url);                                                                               // เริ่มเชื่อมกับปลายทาง
-  http.addHeader("Content-Type", "application/json");                                            // ตั้ง header เป็น JSON
-  int code = http.POST(body);                                                                    // ส่ง POST พร้อม body
-  Serial.print("Telegram HTTP code: ");
-  Serial.println(code);                // แสดงรหัสตอบกลับ HTTP
-  http.end();                          // ปิดการเชื่อมต่อ HTTP
-  return (code >= 200 && code < 300);  // สำเร็จเมื่อรหัส 2xx
-  http.setConnectTimeout(4000);
-  http.setTimeout(5000);
+  return out;
+}
+
+//new
+void autoControlTask() {
+  if (!g_autoMode) return;
+
+  int soilRaw = analogRead(SOIL_PIN);
+  int span = SOIL_DRY_ADC - SOIL_WET_ADC; if (span <= 0) span = 1;
+  int soilPct = (int)(((float)(SOIL_DRY_ADC - soilRaw) * 100.0f) / span);
+  soilPct = constrain(soilPct, 0, 100);
+
+  unsigned long now = millis();
+
+  if (soilPct < g_soilSetpoint) {
+    // ต่ำกว่า setpoint → เปิด Relay1 + sync ปุ่ม ON
+    setRelay1(true);
+    sentAboveOnce = false;
+
+    if (now - lastBelowMsgMs >= BELOW_INTERVAL_MS) {
+      String msg = "⚠️ ความชื้นดินต่ำกว่าค่าที่ตั้งไว้\n"
+                   "ค่าปัจจุบัน: " + String(soilPct) + "%  <  ค่าที่ตั้งไว้: " + String(g_soilSetpoint) + "%\n"
+                   "การทำงาน: เปิดวาล์วน้ำ (Relay1)";
+      telegramSend(msg);
+      lastBelowMsgMs = now;
+    }
+  } else {
+    // สูง/เท่ากับ setpoint → ปิด Relay1 + sync ปุ่ม OFF
+    setRelay1(false);
+
+    if (!sentAboveOnce) {
+      String msg = "✅ ความชื้นดินอยู่ในระดับปกติ\n"
+                   "ค่าปัจจุบัน: " + String(soilPct) + "%  ≥  ค่าที่ตั้งไว้: " + String(g_soilSetpoint) + "%\n"
+                   "การทำงาน: ปิดวาล์วน้ำ (Relay1)";
+      telegramSend(msg);
+      sentAboveOnce = true;
+    }
+    lastBelowMsgMs = 0;
+  }
+}
+
+
+
+/******************** Main Loop ********************/
+void loop() {
+  if (Blynk.connected()) {  // ถ้าเชื่อม Blynk ได้
+    Blynk.run();            // ประมวลผลภายใน Blynk (คอลแบ็ก, sync)
+  }
+  timer.run();  // รันตารางงานตามเวลา (อ่าน/ส่งค่า/รีคอนเน็กต์)
 }
