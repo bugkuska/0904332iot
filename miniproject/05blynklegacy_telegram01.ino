@@ -33,8 +33,8 @@ volatile bool g_relay1State = false;  // false=ปิด, true=เปิด
 /******** โปรโตไทป์ของฟังก์ชันควบคุม Relay1 ********/
 void setRelay1(bool on, bool reflectToApp = true);
 /******************** Telegram ********************/
-const char* TG_BOT_TOKEN = "";  // <- ใส่ของคุณ
-const char* TG_CHAT_ID = "";                                        // <- ใส่ของคุณ
+const char* TG_BOT_TOKEN = "";  // <- ใส่ Telegram Token
+const char* TG_CHAT_ID = "";    // <- ใส่ Telegram ChatID
 
 volatile bool g_autoMode = false;  // โหมด Auto/Manual
 volatile int g_soilSetpoint = 50;  // ค่าเริ่มต้น Soil Setpoint = 50%
