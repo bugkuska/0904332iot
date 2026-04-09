@@ -16,9 +16,7 @@
 // =========================
 // USER CONFIG
 // =========================
-char auth[] = "YOUR_BLYNK_AUTH_TOKEN";
-
-// ใส่ WiFi ปกติแทน WiFiManager
+char auth[] = ""; //แก้ Token
 char ssid[] = "Com@Science";
 char pass[] = "ComS2568";
 
@@ -139,7 +137,7 @@ bool writeSingleRelay(uint8_t relayIndex, bool state) {
     Serial.print(" -> ");
     Serial.println(state ? "ON" : "OFF");
 
-    // อ่านกลับทันทีหลังเขียน เพื่อ sync สถานะจริง
+    // อ่านกลับทันทีหลังเขียน
     readAllRelayStatesFromBoard();
     syncAllToBlynk();
     return true;
@@ -154,25 +152,32 @@ bool writeSingleRelay(uint8_t relayIndex, bool state) {
 
 // =========================
 // Write all relays using FC15 (0x0F)
+// เวอร์ชันนี้แก้ให้เข้ากับ ModbusMaster ของคุณ
 // =========================
 bool writeAllRelays(bool state) {
-  uint8_t coilData[2];
+  uint8_t result;
+
+  // ล้าง buffer ก่อน
+  node1.clearTransmitBuffer();
 
   if (state) {
-    // 12 channels ON => low byte = 0xFF (ch0-7), high nibble = 0x0F (ch8-11)
-    coilData[0] = 0xFF;
-    coilData[1] = 0x0F;
+    // 12 ช่อง ON
+    // low word = 0x00FF (ch0-ch7)
+    // next word = 0x000F (ch8-ch11)
+    node1.setTransmitBuffer(0, 0x00FF);
+    node1.setTransmitBuffer(1, 0x000F);
   } else {
-    coilData[0] = 0x00;
-    coilData[1] = 0x00;
+    // 12 ช่อง OFF
+    node1.setTransmitBuffer(0, 0x0000);
+    node1.setTransmitBuffer(1, 0x0000);
   }
 
-  uint8_t result = node1.writeMultipleCoils(0x0000, 12, coilData);
+  result = node1.writeMultipleCoils(0x0000, 12);
 
   if (result == node1.ku8MBSuccess) {
     Serial.println(state ? "ALL RELAYS -> ON" : "ALL RELAYS -> OFF");
 
-    // อ่านกลับทันทีหลังเขียน เพื่อ sync สถานะจริง
+    // อ่านกลับทันทีหลังเขียน
     readAllRelayStatesFromBoard();
     syncAllToBlynk();
     return true;
@@ -349,13 +354,9 @@ void setup() {
     Serial.println("Initial Blynk connect failed");
   }
 
-  // อ่านสถานะจริงทุก 300 ms
   timer.setInterval(300L, pollRelayStates);
-
-  // ตรวจการเชื่อมต่อทุก 10 วินาที
   timer.setInterval(10000L, checkConnections);
 
-  // อ่านครั้งแรก
   if (readAllRelayStatesFromBoard()) {
     printRelayStates();
   }
